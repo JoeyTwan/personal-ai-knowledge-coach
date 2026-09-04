@@ -1,0 +1,30 @@
+{
+  "name": "@coach/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "个人 AI 知识教练 · 后端 API",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "dotenv -e ../.env -- prisma generate",
+    "db:push": "dotenv -e ../.env -- prisma db push",
+    "db:migrate": "dotenv -e ../.env -- prisma migrate dev"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@prisma/client": "^5.22.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "openai": "^4.77.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "dotenv-cli": "^7.4.2",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}

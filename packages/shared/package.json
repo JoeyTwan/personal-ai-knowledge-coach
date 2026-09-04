@@ -1,0 +1,8 @@
+{
+  "name": "@coach/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "前后端共享的常量与类型",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

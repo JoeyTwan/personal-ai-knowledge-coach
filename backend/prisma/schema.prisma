@@ -1,0 +1,247 @@
+// Prisma Schema · 个人 AI 知识教练
+// 默认 SQLite（零配置），可切换 Postgres
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  username     String?  @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile         UserProfile?
+  knowledges      Knowledge[]
+  states          UserKnowledgeState[]
+  conversations   ConversationSession[]
+  reviewSessions  ReviewSession[]
+  recommendations LearningRecommendation[]
+  gaps            KnowledgeGap[]
+  relations       KnowledgeRelation[]
+}
+
+model Knowledge {
+  id                String   @id @default(cuid())
+  title             String
+  coreConclusion    String
+  briefExplanation  String?
+  detailExplanation String?
+  example           String?
+  type              String
+  status            String   @default("active")
+  confidence        Float?
+  isOutdated        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  tags          Tag[]                @relation("KnowledgeTags")
+  sources       KnowledgeSource[]
+  versions      KnowledgeVersion[]
+  states        UserKnowledgeState[]
+  relationsFrom KnowledgeRelation[]  @relation("RelationFrom")
+  relationsTo   KnowledgeRelation[]  @relation("RelationTo")
+}
+
+model KnowledgeRelation {
+  id         String   @id @default(cuid())
+  type       String
+  reason     String?
+  confidence Float?
+  createdAt  DateTime @default(now())
+
+  fromId String
+  toId   String
+  from   Knowledge @relation("RelationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to     Knowledge @relation("RelationTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+}
+
+model KnowledgeSource {
+  id         String    @id @default(cuid())
+  type       String
+  detail     String?
+  occurredAt DateTime?
+  note       String?
+  createdAt  DateTime  @default(now())
+
+  knowledgeId String
+  knowledge   Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeVersion {
+  id                String   @id @default(cuid())
+  version           Int
+  title             String
+  coreConclusion    String
+  detailExplanation String?
+  changeReason      String?
+  sourceNote        String?
+  createdAt         DateTime @default(now())
+
+  knowledgeId String
+  knowledge   Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+
+  knowledges Knowledge[]
+}
+
+model Tag {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  knowledges Knowledge[] @relation("KnowledgeTags")
+}
+
+model UserProfile {
+  id                    String   @id @default(cuid())
+  occupation            String?
+  workDomain            String?
+  currentFocus          String?
+  primaryKnowledgeAreas String? // JSON
+  commonScenarios       String? // JSON
+  technicalDepth        String?
+  businessLevel         String?
+  interests             String? // JSON
+  learningGoals         String? // JSON
+  deepDiveAreas         String? // JSON
+  shallowAreas          String? // JSON
+  commonMistakes        String? // JSON
+  weakDirections        String? // JSON
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserKnowledgeState {
+  id               String   @id @default(cuid())
+  awareness        Float    @default(0)
+  recall           Float    @default(0)
+  understanding    Float    @default(0)
+  association      Float    @default(0)
+  application      Float    @default(0)
+  stability        Float    @default(0)
+  recommendedDepth String   @default("understand")
+  lastReviewedAt   DateTime?
+  nextReviewAt     DateTime?
+  reviewCount      Int      @default(0)
+  forgetRisk       Float?
+  updatedAt        DateTime @updatedAt
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  knowledgeId String
+  knowledge   Knowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, knowledgeId])
+}
+
+model ReviewSession {
+  id           String    @id @default(cuid())
+  type         String    @default("mixed")
+  status       String    @default("in_progress")
+  knowledgeIds String // JSON 数组
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  questions Question[]
+}
+
+model Question {
+  id         String   @id @default(cuid())
+  type       String
+  prompt     String
+  options    String? // JSON（选择题）
+  answer     String? // 参考答案 / 评分要点
+  difficulty Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  sessionId String
+  session   ReviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  knowledgeId String?
+  attempts    QuestionAttempt[]
+}
+
+model QuestionAttempt {
+  id         String   @id @default(cuid())
+  answer     String
+  isCorrect  Boolean?
+  score      Float?
+  feedback   String?
+  errorType  String?
+  createdAt  DateTime @default(now())
+
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model LearningRecommendation {
+  id           String   @id @default(cuid())
+  type         String
+  title        String
+  detail       String?
+  knowledgeIds String? // JSON
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeGap {
+  id             String   @id @default(cuid())
+  gapDescription String
+  recommended    Boolean  @default(false)
+  reason         String?
+  status         String   @default("open")
+  createdAt      DateTime @default(now())
+
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromKnowledgeId String?
+  toKnowledgeId   String?
+}
+
+model ConversationSession {
+  id         String   @id @default(cuid())
+  mode       String   @default("cocreate")
+  status     String   @default("active")
+  title      String?
+  rawContent String?
+  messages   String   @default("[]") // JSON 对话流
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
