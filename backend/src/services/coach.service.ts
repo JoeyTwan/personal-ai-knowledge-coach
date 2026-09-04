@@ -45,13 +45,41 @@ export async function startReviewSession(userId: string, knowledgeIds?: string[]
   return { sessionId: session.id, total: ids.length }
 }
 
-// ===== 根据掌握状态选择题型与难度 =====
-function chooseQuestionType(reviewCount: number, state: any) {
-  if (reviewCount === 0) return { type: 'recall', difficulty: 1 }
-  if (reviewCount === 1) return { type: 'understanding', difficulty: 2 }
-  if (reviewCount === 2) return { type: 'comparison', difficulty: 3 }
-  if (reviewCount === 3) return { type: 'association', difficulty: 3 }
-  return { type: 'application', difficulty: 4 }
+// ===== 根据掌握状态与上次答题结果选择题型与难度 =====
+// 答错归因 → 下次针对性题型 + 受影响的掌握维度（错误类型驱动复习方式）
+const ERROR_TYPE_RULES: Record<string, { type: string; dim: 'recall' | 'understanding' | 'association' | 'application'; note: string }> = {
+  forget: { type: 'recall', dim: 'recall', note: '遗忘，重新回忆' },
+  confusion: { type: 'counterexample', dim: 'understanding', note: '概念混淆，出辨析题' },
+  missing_relation: { type: 'association', dim: 'association', note: '关系没建立，出关联题' },
+  missing_prerequisite: { type: 'understanding', dim: 'understanding', note: '前置知识不足，回到理解' },
+  misunderstand: { type: 'understanding', dim: 'understanding', note: '理解错误，出理解题' },
+  misapply: { type: 'application', dim: 'application', note: '应用错误，出场景题' },
+}
+
+// 答对时的题型递进序列：回忆 → 理解 → 对比 → 关联 → 应用
+const PROGRESSION = ['recall', 'understanding', 'comparison', 'association', 'application']
+
+function chooseQuestionType(
+  state: any,
+  lastAttempt: { isCorrect: boolean | null; errorType: string | null } | null,
+) {
+  // 1. 上次答错且有归因 → 用 errorType 驱动针对性题型（判别「为什么错」）
+  if (lastAttempt && lastAttempt.isCorrect === false && lastAttempt.errorType) {
+    const next = ERROR_TYPE_RULES[lastAttempt.errorType]
+    if (next) return { type: next.type, difficulty: 1, note: next.note }
+  }
+
+  // 2. 「看过但不会用」：回忆维度高，理解/应用明显偏低 → 出辨析题判别真理解
+  const recall = state?.recall ?? 0
+  const higherAvg = ((state?.understanding ?? 0) + (state?.application ?? 0)) / 2
+  if (recall >= 0.6 && higherAvg <= 0.3) {
+    return { type: 'counterexample', difficulty: 3, note: '回忆强但理解浅，出辨析题' }
+  }
+
+  // 3. 答对 / 首次 → 按递进序列升级
+  const reviewCount = state?.reviewCount ?? 0
+  const idx = Math.min(reviewCount, PROGRESSION.length - 1)
+  return { type: PROGRESSION[idx], difficulty: idx + 1 }
 }
 
 // ===== 生成下一题 =====
@@ -78,7 +106,15 @@ export async function getNextQuestion(userId: string, sessionId: string) {
   const state = await prisma.userKnowledgeState.findUnique({
     where: { userId_knowledgeId: { userId, knowledgeId } },
   })
-  const { type, difficulty } = chooseQuestionType(state?.reviewCount ?? 0, state)
+
+  // 读取该知识最近一次作答（含答错归因），用于动态选择题型
+  const lastAttempt = await prisma.questionAttempt.findFirst({
+    where: { question: { knowledgeId, session: { userId } } },
+    orderBy: { createdAt: 'desc' },
+    select: { isCorrect: true, errorType: true },
+  })
+
+  const { type, difficulty } = chooseQuestionType(state, lastAttempt)
 
   const profile = await getProfileText(userId)
   const prompt = [
@@ -226,9 +262,13 @@ async function updateStateAfterAnswer(
     nextReviewAt: new Date(Date.now() + nextInterval(state.reviewCount + 1, good)),
     forgetRisk: good ? Math.max(0, (state.forgetRisk ?? 0) - 0.1) : clamp((state.forgetRisk ?? 0.3) + 0.15),
   }
-  // 答对时顺带小幅提升 recall 与 understanding（回忆本身就是强化）
+  // 答对时顺带小幅提升 recall（回忆本身就是强化）
   if (good) {
     data.recall = clamp(state.recall + 0.1)
+  } else if (evalResult.errorType) {
+    // 答错时针对错误归因，降低对应维度（让掌握度真实反映薄弱点，而非只涨不跌）
+    const rule = ERROR_TYPE_RULES[evalResult.errorType]
+    if (rule) data[rule.dim] = clamp((state[rule.dim] as number) - 0.15)
   }
 
   await prisma.userKnowledgeState.update({ where: { id: state.id }, data: data as any })

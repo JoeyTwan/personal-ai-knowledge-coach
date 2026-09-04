@@ -7,6 +7,7 @@ interface RelationSuggestion {
   type: string
   reason?: string
   confidence?: number
+  gapDescription?: string
 }
 
 // 新知识入库后，AI 自动发现与已有知识的关系
@@ -41,6 +42,24 @@ ${others.map((o) => `- [${o.title}] ${o.coreConclusion}`).join('\n')}
     const target = others.find((o) => o.title === s.toTitle)
     if (!target) continue
     try {
+      // 知识桥梁：A 与 B 之间缺失中间知识 C，C 本身不存在，不能作为关系边，
+      // 转存为「断层」记录，gapDescription 描述缺失的 C。
+      if (s.type === 'bridge') {
+        const gap = await prisma.knowledgeGap.create({
+          data: {
+            userId,
+            gapDescription:
+              s.gapDescription ||
+              `「${knowledge.title}」与「${target.title}」之间缺少关键的中间知识`,
+            recommended: false, // 是否值得学习，由后续断层分析结合画像判断
+            reason: s.reason,
+            fromKnowledgeId: knowledgeId,
+            toKnowledgeId: target.id,
+          },
+        })
+        created.push({ kind: 'gap', ...gap })
+        continue
+      }
       const rel = await prisma.knowledgeRelation.upsert({
         where: { fromId_toId_type: { fromId: knowledgeId, toId: target.id, type: s.type } },
         update: { reason: s.reason, confidence: s.confidence },

@@ -2,44 +2,46 @@ import { prisma } from '../lib/prisma'
 import { chat } from '../ai/client'
 import { askSystem } from '../ai/prompts'
 import { getProfileText } from './user.service'
+import { tokenize } from '../lib/jieba'
 
-// 简单分词：按标点/空白分割，取长度 >= 2 的片段
-function tokenize(text: string): string[] {
-  return text
-    .split(/[\s，。？！、；：""''（）()\[\]【】,.!?;:]+/)
-    .filter((t) => t.length >= 2)
-    .slice(0, 10)
-}
-
-// 检索相关知识：关键词匹配，匹配不足时退回最近知识
+// 检索相关知识：jieba 中文分词 + 多词 OR 匹配 + 按命中词数排序。
+// 不再退回「最近知识」做假召回，避免把不相关知识喂给 AI 污染回答。
 export async function searchKnowledge(userId: string, question: string) {
   const tokens = tokenize(question)
-  const orConditions = tokens.map((t) => ({
-    OR: [
-      { title: { contains: t } },
-      { coreConclusion: { contains: t } },
-      { detailExplanation: { contains: t } },
-    ],
-  }))
+  if (tokens.length === 0) {
+    return []
+  }
 
-  let results = await prisma.knowledge.findMany({
-    where: orConditions.length
-      ? { userId, status: 'active', OR: orConditions }
-      : { userId, status: 'active' },
+  // 拉取所有命中任意分词的知识作为候选
+  const candidates = await prisma.knowledge.findMany({
+    where: {
+      userId,
+      status: 'active',
+      OR: tokens.map((t) => ({
+        OR: [
+          { title: { contains: t } },
+          { coreConclusion: { contains: t } },
+          { detailExplanation: { contains: t } },
+        ],
+      })),
+    },
     orderBy: { updatedAt: 'desc' },
-    take: 10,
+    take: 50,
     include: { tags: true, sources: true },
   })
 
-  if (results.length === 0) {
-    results = await prisma.knowledge.findMany({
-      where: { userId, status: 'active' },
-      orderBy: { updatedAt: 'desc' },
-      take: 10,
-      include: { tags: true, sources: true },
+  // 按命中词数降序排序，命中越多越相关；过滤掉零命中，取前 10
+  const scored = candidates
+    .map((k) => {
+      const haystack = `${k.title} ${k.coreConclusion} ${k.detailExplanation ?? ''}`
+      const hitCount = tokens.filter((t) => haystack.includes(t)).length
+      return { k, hitCount }
     })
-  }
-  return results
+    .filter((s) => s.hitCount > 0)
+    .sort((a, b) => b.hitCount - a.hitCount)
+    .slice(0, 10)
+
+  return scored.map((s) => s.k)
 }
 
 export async function ask(userId: string, question: string) {

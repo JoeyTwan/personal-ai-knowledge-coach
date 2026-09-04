@@ -71,12 +71,14 @@ export function discoverRelationsSystem(): string {
 - application：应用（A 可用于 B）
 - conflict：冲突（A 与 B 存在矛盾）
 - evolution：演化（A 是旧版本，B 是更新版本）
-- bridge：知识桥梁（A 和 B 之间存在重要的中间知识 C）
+- bridge：知识桥梁（A 和 B 之间存在重要的中间知识 C，但 C 尚未被用户记录）
 
 请输出严格的 JSON 数组：
 [
   { "toTitle": "目标知识标题", "type": "关系类型", "reason": "建立这个关系的原因（简短）", "confidence": 0.8 }
 ]
+
+当 type 为 bridge 时，额外输出 "gapDescription" 字段，用一句话描述缺失的中间知识 C 是什么（其余类型不要输出该字段）。
 
 只输出有把握的关系，宁缺毋滥。confidence 取值 0-1。只输出 JSON 数组。`
 }
@@ -234,4 +236,23 @@ export function gapSystem(): string {
 ]
 
 只输出真正重要的断层，最多 3 个。只输出 JSON 数组。`
+}
+
+// ===== 知识演化检测 =====
+export function detectEvolutionSystem(): string {
+  return `你负责判断一条新知识是否是对已有知识的「演化」（同一主题的更新/增强），而不是全新知识。
+
+判断标准：
+1. 如果新知识与某条已有知识是「同一个主题 / 同一件事 / 同一家公司」，只是信息更具体、更新、可信度更高，则属于演化。
+2. 演化举例：之前记录「某厂商能做液冷」，现在记录「某厂商液冷项目已验证」，这是同一主题的可信度增强，应更新旧知识而非新建。
+3. 如果新知识是一个全新的、不同的主题，则 isEvolution 为 false。
+
+请输出严格的 JSON：
+{
+  "isEvolution": false,
+  "targetKnowledgeId": "已有知识 id（isEvolution 为 true 时填写）",
+  "reason": "判断原因（简短）"
+}
+
+注意：只在信息明显属于同一主题、且新信息是对旧信息的补充/更新时才判为演化；宁可新建，也不要误合并不同主题。只输出 JSON。`
 }
