@@ -34,6 +34,16 @@ export async function getProfile(userId: string) {
   return prisma.userProfile.findUnique({ where: { userId } })
 }
 
+// 节流刷新：距上次画像刷新超过 1 小时才真正执行，避免每条知识入库都触发一次 LLM 推断
+export async function maybeRefreshProfile(userId: string) {
+  const existing = await prisma.userProfile.findUnique({ where: { userId } })
+  const oneHour = 60 * 60 * 1000
+  if (existing && existing.updatedAt && Date.now() - existing.updatedAt.getTime() < oneHour) {
+    return existing
+  }
+  return refreshProfile(userId)
+}
+
 // 从知识库内容 + 学习行为推断用户画像
 export async function refreshProfile(userId: string) {
   const knowledges = await prisma.knowledge.findMany({

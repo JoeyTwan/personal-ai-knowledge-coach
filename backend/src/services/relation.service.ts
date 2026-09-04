@@ -78,8 +78,9 @@ ${others.map((o) => `- ${o.id} | ${o.title} | ${o.coreConclusion}`).join('\n')}
         },
       })
       created.push(rel)
-    } catch {
-      // 忽略重复等异常
+    } catch (e) {
+      // 重复关系等异常属正常情况，仅记日志不中断
+      console.error('[关系发现] 建立关系失败', e)
     }
   }
   return created

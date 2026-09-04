@@ -28,6 +28,7 @@ export default function RecordPage() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState('')
+  const [summarizing, setSummarizing] = useState(false)
 
   async function send() {
     if (!input.trim() || loading) return
@@ -70,6 +71,21 @@ export default function RecordPage() {
   function discard() {
     setDraft(null)
     setMessages((m) => [...m, { role: 'assistant', content: '好的，已放弃这条，我们继续。' }])
+  }
+
+  // P2-1：AI 未自动出共识标记时，用户主动触发总结生成草稿
+  async function summarize() {
+    if (!sessionId || summarizing) return
+    setSummarizing(true)
+    setError('')
+    try {
+      const res = await apiPost<{ draft: Draft }>('/api/cocreation/summarize', { sessionId })
+      if (res.draft) setDraft(res.draft)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSummarizing(false)
+    }
   }
 
   return (
@@ -166,6 +182,18 @@ export default function RecordPage() {
               返回
             </button>
           </div>
+        </div>
+      )}
+
+      {/* P2-1：中间态兜底，AI 未出草稿时提供手动总结入口 */}
+      {!draft && messages.length > 0 && !loading && (
+        <div className="card border-gold/30">
+          <p className="text-[13px] text-muted">
+            如果教练还没有给出结论，你可以直接让教练基于上面的讨论总结出一条知识草稿。
+          </p>
+          <button className="btn btn-ghost mt-2" onClick={summarize} disabled={summarizing}>
+            {summarizing ? '正在总结…' : '生成知识草稿'}
+          </button>
         </div>
       )}
 

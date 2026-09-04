@@ -126,16 +126,17 @@ export async function mergeKnowledge(userId: string, knowledgeIds: string[]) {
           userId,
         },
       })
-    } catch {
-      // 忽略重复关系
+    } catch (e) {
+      // 忽略重复关系，仅记日志
+      console.error('[知识合并] 建立演化关系失败', e)
     }
   }
 
   // 合并后重建新知识与其它知识的关系（P1-6，失败不影响合并结果）
   try {
     await discoverRelations(userId, newKnowledge.id)
-  } catch {
-    // 关系重建失败静默
+  } catch (e) {
+    console.error('[知识合并] 关系重建失败', e)
   }
 
   return newKnowledge

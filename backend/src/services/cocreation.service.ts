@@ -1,9 +1,10 @@
 import { prisma } from '../lib/prisma'
 import { chat, chatJSON } from '../ai/client'
-import { cocreateSystem, classifySystem, detectEvolutionSystem } from '../ai/prompts'
+import { cocreateSystem, classifySystem, detectEvolutionSystem, extractKnowledgeSystem } from '../ai/prompts'
 import { getProfileText } from './user.service'
 import { createKnowledge } from './knowledge.service'
 import { discoverRelations } from './relation.service'
+import { maybeRefreshProfile } from './profile.service'
 
 interface StoredMessage {
   role: 'system' | 'user' | 'assistant'
@@ -47,7 +48,13 @@ export async function discuss(userId: string, sessionId: string | null, userMess
   ]
 
   const reply = await chat(messages)
-  const consensus = parseConsensus(reply)
+
+  // P2-6：首轮讨论强制至少追问一轮。即使 AI 首轮就输出共识标记，也忽略，避免未澄清就直接入库。
+  const isFirstTurn = history.length === 0
+  let consensus = parseConsensus(reply)
+  if (isFirstTurn && consensus.reached) {
+    consensus = { reached: false, draft: null }
+  }
 
   const newHistory: StoredMessage[] = [
     ...history,
@@ -78,6 +85,34 @@ export async function discuss(userId: string, sessionId: string | null, userMess
     consensusReached: consensus.reached,
     draft: consensus.draft,
   }
+}
+
+// P2-1：AI 未自动输出共识标记时的兜底。用户点击「生成草稿」，基于整段对话历史强制总结出一条知识草稿。
+export async function summarizeConsensus(userId: string, sessionId: string) {
+  const session = await prisma.conversationSession.findUnique({ where: { id: sessionId } })
+  if (!session) return null
+
+  const history = JSON.parse(session.messages) as StoredMessage[]
+  if (history.length === 0) return null
+
+  const profile = await getProfileText(userId)
+
+  const draft = await chatJSON<KnowledgeDraft>([
+    { role: 'system', content: extractKnowledgeSystem() },
+    {
+      role: 'user',
+      content: `以下是用户与知识教练的讨论记录，请把它们整理成一条结构化知识（若信息不足以形成结论，用已有信息合理归纳，不要在字段里留「待补充」）。\n\n${history
+        .map(
+          (m) =>
+            `${m.role === 'user' ? '用户' : '教练'}：${m.content
+              .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
+              .trim()}`,
+        )
+        .join('\n')}`,
+    },
+  ])
+
+  return { draft }
 }
 
 export interface ConfirmInput {
@@ -158,8 +193,8 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
       ])
       if (cls.categoryPath && cls.categoryPath.length > 0) categoryPath = cls.categoryPath
       if (cls.tags && cls.tags.length > 0) tags = Array.from(new Set([...tags, ...cls.tags]))
-    } catch {
-      // 分类失败不影响入库
+    } catch (e) {
+      console.error('[自动分类] 失败，跳过分类', e)
     }
   }
 
@@ -194,15 +229,16 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
             }
             try {
               await discoverRelations(userId, target.id)
-            } catch {
-              // 关系发现失败静默处理
+            } catch (e) {
+              console.error('[关系发现] 演化后重建关系失败', e)
             }
+            maybeRefreshProfile(userId).catch((e) => console.error('[画像刷新] 演化后自动刷新失败', e))
             return evolved
           }
         }
       }
-    } catch {
-      // 演化检测失败，走新建
+    } catch (e) {
+      console.error('[演化检测] 失败，走新建', e)
     }
   }
 
@@ -231,9 +267,12 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
   // 入库后自动发现与已有知识的关系（失败不影响入库结果）
   try {
     await discoverRelations(userId, knowledge.id)
-  } catch {
-    // 关系发现失败静默处理
+  } catch (e) {
+    console.error('[关系发现] 入库后自动发现失败', e)
   }
+
+  // 入库后节流刷新画像（P2-5，失败不影响入库结果）
+  maybeRefreshProfile(userId).catch((e) => console.error('[画像刷新] 入库后自动刷新失败', e))
 
   return knowledge
 }

@@ -76,8 +76,21 @@ function chooseQuestionType(
     return { type: 'counterexample', difficulty: 3, note: '回忆强但理解浅，出辨析题' }
   }
 
-  // 3. 答对 / 首次 → 按递进序列升级
   const reviewCount = state?.reviewCount ?? 0
+
+  // 3. 首次接触（从未作答）→ 出选择题做轻量自测，降低回忆门槛（P2-4 补 choice）
+  if (!lastAttempt && reviewCount === 0) {
+    return { type: 'choice', difficulty: 1, note: '首次接触，出选择题自测' }
+  }
+
+  // 4. 高阶掌握（应用/稳定度都高、复习多次）→ 出开放题检验能否自由表达、融会贯通（P2-4 补 open）
+  const application = state?.application ?? 0
+  const stability = state?.stability ?? 0
+  if (application >= 0.7 && stability >= 0.6 && reviewCount >= 3) {
+    return { type: 'open', difficulty: 5, note: '已深入掌握，出开放题检验融会贯通' }
+  }
+
+  // 5. 其余情况 → 按递进序列升级
   const idx = Math.min(reviewCount, PROGRESSION.length - 1)
   return { type: PROGRESSION[idx], difficulty: idx + 1 }
 }
@@ -167,11 +180,13 @@ ${profile || '无'}`,
 function dimensionForType(type: string): 'recall' | 'understanding' | 'association' | 'application' {
   switch (type) {
     case 'recall':
+    case 'choice': // 选择题本质是降低门槛的回忆
       return 'recall'
     case 'comparison':
     case 'association':
       return 'association'
     case 'application':
+    case 'open': // 开放题检验自由表达，属应用高阶
       return 'application'
     default:
       return 'understanding'
