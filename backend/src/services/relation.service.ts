@@ -3,7 +3,8 @@ import { chatJSON } from '../ai/client'
 import { discoverRelationsSystem } from '../ai/prompts'
 
 interface RelationSuggestion {
-  toTitle: string
+  toId?: string
+  toTitle?: string
   type: string
   reason?: string
   confidence?: number
@@ -27,10 +28,10 @@ export async function discoverRelations(userId: string, knowledgeId: string) {
 标题：${knowledge.title}
 核心结论：${knowledge.coreConclusion}
 
-已有知识列表：
-${others.map((o) => `- [${o.title}] ${o.coreConclusion}`).join('\n')}
+已有知识列表（格式：id | 标题 | 核心结论）：
+${others.map((o) => `- ${o.id} | ${o.title} | ${o.coreConclusion}`).join('\n')}
 
-请判断新知识与已有知识之间的关系。`
+请判断新知识与已有知识之间的关系，返回目标知识的 id。`
 
   const suggestions = await chatJSON<RelationSuggestion[]>([
     { role: 'system', content: discoverRelationsSystem() },
@@ -39,7 +40,11 @@ ${others.map((o) => `- [${o.title}] ${o.coreConclusion}`).join('\n')}
 
   const created: unknown[] = []
   for (const s of suggestions) {
-    const target = others.find((o) => o.title === s.toTitle)
+    // 优先用 id 匹配，退回到标题精确匹配，再退回到标题包含匹配
+    const target =
+      (s.toId ? others.find((o) => o.id === s.toId) : undefined) ??
+      (s.toTitle ? others.find((o) => o.title === s.toTitle) : undefined) ??
+      (s.toTitle ? others.find((o) => o.title.includes(s.toTitle as string)) : undefined)
     if (!target) continue
     try {
       // 知识桥梁：A 与 B 之间缺失中间知识 C，C 本身不存在，不能作为关系边，
@@ -80,13 +85,15 @@ ${others.map((o) => `- [${o.title}] ${o.coreConclusion}`).join('\n')}
   return created
 }
 
-// 知识图谱：节点 + 边
+// 知识图谱：节点 + 边（过滤掉指向已归档/删除知识的悬空边）
 export async function getGraph(userId: string) {
   const knowledges = await prisma.knowledge.findMany({
     where: { userId, status: 'active' },
     select: { id: true, title: true, type: true, coreConclusion: true },
   })
   const relations = await prisma.knowledgeRelation.findMany({ where: { userId } })
+  const activeIds = new Set(knowledges.map((k) => k.id))
+  const validRelations = relations.filter((r) => activeIds.has(r.fromId) && activeIds.has(r.toId))
   return {
     nodes: knowledges.map((k) => ({
       id: k.id,
@@ -94,7 +101,7 @@ export async function getGraph(userId: string) {
       type: k.type,
       summary: k.coreConclusion,
     })),
-    edges: relations.map((r) => ({
+    edges: validRelations.map((r) => ({
       from: r.fromId,
       to: r.toId,
       type: r.type,

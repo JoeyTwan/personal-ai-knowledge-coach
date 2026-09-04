@@ -34,7 +34,7 @@ export async function getProfile(userId: string) {
   return prisma.userProfile.findUnique({ where: { userId } })
 }
 
-// 从知识库内容推断用户画像
+// 从知识库内容 + 学习行为推断用户画像
 export async function refreshProfile(userId: string) {
   const knowledges = await prisma.knowledge.findMany({
     where: { userId },
@@ -46,9 +46,42 @@ export async function refreshProfile(userId: string) {
     .map((k) => `[${k.type}] ${k.title}：${k.coreConclusion}（标签：${k.tags.map((t) => t.name).join('、')}）`)
     .join('\n')
 
+  // 学习行为数据：答题记录 + 错误类型分布（帮助推断职业、常犯错误、薄弱方向）
+  const attempts = await prisma.questionAttempt.findMany({
+    where: { question: { session: { userId } } },
+    select: { isCorrect: true, errorType: true },
+  })
+  const errorTypeCount: Record<string, number> = {}
+  let correctCount = 0
+  for (const a of attempts) {
+    if (a.isCorrect) correctCount++
+    if (a.errorType) errorTypeCount[a.errorType] = (errorTypeCount[a.errorType] ?? 0) + 1
+  }
+  const errorTypeNames: Record<string, string> = {
+    forget: '遗忘',
+    confusion: '概念混淆',
+    missing_relation: '关系没建立',
+    missing_prerequisite: '前置知识不足',
+    misunderstand: '理解错误',
+    misapply: '应用错误',
+  }
+  const errorSummary =
+    Object.entries(errorTypeCount)
+      .map(([k, v]) => `${errorTypeNames[k] ?? k} ${v} 次`)
+      .join('、') || '无'
+
+  const behaviorSummary = [
+    `总作答次数：${attempts.length}`,
+    `答对次数：${correctCount}`,
+    `错误类型分布：${errorSummary}`,
+  ].join('\n')
+
   const profile = await chatJSON<ProfilePatch>([
     { role: 'system', content: inferProfileSystem() },
-    { role: 'user', content: `以下是用户积累的知识：\n${summary || '（暂无知识）'}\n请推断用户画像。` },
+    {
+      role: 'user',
+      content: `以下是用户积累的知识：\n${summary || '（暂无知识）'}\n\n用户学习行为数据：\n${behaviorSummary}\n\n请结合知识内容和行为数据推断用户画像（尤其关注：职业身份、常犯错误、薄弱方向）。`,
+    },
   ])
 
   const data: Record<string, unknown> = { ...profile }
