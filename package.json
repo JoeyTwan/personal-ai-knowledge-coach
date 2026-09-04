@@ -1,0 +1,23 @@
+{
+  "name": "personal-ai-knowledge-coach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "个人 AI 知识教练：一个长期理解用户、组织用户知识、检测真实掌握程度并帮助用户持续成长的私人 AI 知识教练",
+  "workspaces": [
+    "apps/*",
+    "backend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:backend": "npm run dev --workspace @coach/backend",
+    "dev:web": "npm run dev --workspace @coach/web",
+    "build": "npm run build --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace @coach/backend",
+    "db:push": "npm run db:push --workspace @coach/backend",
+    "db:migrate": "npm run db:migrate --workspace @coach/backend"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

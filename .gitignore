@@ -1,0 +1,51 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 构建产物 =====
+.next/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# ===== 环境变量（敏感信息，严禁提交） =====
+.env
+.env.local
+.env.*.local
+.env.production
+
+# ===== 数据库文件 =====
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ===== 日志 =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== 上传与临时文件 =====
+uploads/
+tmp/
+temp/
+.cache/
+
+# ===== IDE 与编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== 密钥与证书 =====
+*.pem
+*.key
+*.crt
