@@ -7,6 +7,7 @@ import { askRoutes } from './routes/ask'
 import { reviewRoutes } from './routes/review'
 import { profileRoutes } from './routes/profile'
 import { mergeRoutes } from './routes/merge'
+import { exportRoutes } from './routes/export'
 
 export function buildServer() {
   const app = Fastify({ logger: true })
@@ -26,6 +27,7 @@ export function buildServer() {
   app.register(reviewRoutes)
   app.register(profileRoutes)
   app.register(mergeRoutes)
+  app.register(exportRoutes)
 
   return app
 }

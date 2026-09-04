@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { apiGet, apiPost, apiDelete } from '@/lib/api'
+import { apiGet, apiPost, apiDelete, API_BASE } from '@/lib/api'
 
 export default function KnowledgeDetailPage() {
   const params = useParams()
@@ -35,6 +35,22 @@ export default function KnowledgeDetailPage() {
     try {
       await apiDelete(`/api/knowledge/${id}`)
       router.push('/knowledge')
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
+  async function exportMd() {
+    try {
+      const res = await fetch(`${API_BASE}/api/knowledge/${id}/export`)
+      const text = await res.text()
+      const blob = new Blob([text], { type: 'text/markdown' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${k.title}.md`
+      a.click()
+      URL.revokeObjectURL(url)
     } catch (e: any) {
       alert(e.message)
     }
@@ -171,6 +187,9 @@ export default function KnowledgeDetailPage() {
         <Link href={`/review?knowledgeId=${k.id}`} className="btn btn-gold">
           开始复习
         </Link>
+        <button className="btn btn-ghost" onClick={exportMd}>
+          导出 Markdown
+        </button>
         {k.status === 'active' ? (
           <>
             <button className="btn btn-ghost" onClick={() => setStatus('outdated')}>
