@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma'
 import { chatJSON } from '../ai/client'
-import { inferProfileSystem, recommendSystem } from '../ai/prompts'
+import { inferProfileSystem, recommendSystem, gapSystem } from '../ai/prompts'
 import { getProfileText } from './user.service'
 
 interface ProfilePatch {
@@ -115,4 +115,59 @@ ${states.map((s) => `${s.knowledge.title}：理解 ${s.understanding.toFixed(1)}
     created.push(rec)
   }
   return created
+}
+
+// 知识断层发现
+export async function discoverGaps(userId: string) {
+  const knowledges = await prisma.knowledge.findMany({
+    where: { userId, status: 'active' },
+    select: { id: true, title: true, coreConclusion: true, type: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 40,
+  })
+  if (knowledges.length < 2) return []
+  const profile = await getProfileText(userId)
+
+  interface GapDraft {
+    gapDescription: string
+    recommended: boolean
+    reason?: string
+    fromKnowledgeId?: string
+    toKnowledgeId?: string
+  }
+  const gaps = await chatJSON<GapDraft[]>([
+    { role: 'system', content: gapSystem() },
+    {
+      role: 'user',
+      content: `用户画像：\n${profile || '无'}
+
+用户知识列表：
+${knowledges.map((k) => `[${k.id}] ${k.title}：${k.coreConclusion}`).join('\n')}
+
+请发现用户知识体系中的断层。`,
+    },
+  ])
+
+  const created = []
+  for (const g of gaps) {
+    const gap = await prisma.knowledgeGap.create({
+      data: {
+        userId,
+        gapDescription: g.gapDescription,
+        recommended: g.recommended,
+        reason: g.reason,
+        fromKnowledgeId: g.fromKnowledgeId,
+        toKnowledgeId: g.toKnowledgeId,
+      },
+    })
+    created.push(gap)
+  }
+  return created
+}
+
+export async function listGaps(userId: string) {
+  return prisma.knowledgeGap.findMany({
+    where: { userId, status: 'open' },
+    orderBy: { createdAt: 'desc' },
+  })
 }

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma'
 import { getDefaultUserId } from '../services/user.service'
-import { getProfile, refreshProfile, recommendLearning } from '../services/profile.service'
+import { getProfile, refreshProfile, recommendLearning, discoverGaps, listGaps } from '../services/profile.service'
 
 export async function profileRoutes(app: FastifyInstance) {
   app.get('/api/profile', async () => {
@@ -25,5 +25,15 @@ export async function profileRoutes(app: FastifyInstance) {
   app.post('/api/recommendations/generate', async () => {
     const userId = await getDefaultUserId()
     return recommendLearning(userId)
+  })
+
+  app.get('/api/gaps', async () => {
+    const userId = await getDefaultUserId()
+    return listGaps(userId)
+  })
+
+  app.post('/api/gaps/discover', async () => {
+    const userId = await getDefaultUserId()
+    return discoverGaps(userId)
   })
 }

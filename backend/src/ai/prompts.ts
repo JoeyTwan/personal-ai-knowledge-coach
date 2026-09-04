@@ -213,3 +213,25 @@ export function mergeKnowledgeSystem(): string {
 
 只输出 JSON。`
 }
+
+// ===== 知识断层发现 =====
+export function gapSystem(): string {
+  return `你是知识教练，负责发现用户知识体系中的断层。
+
+断层指的是：用户已经掌握了 A 和 D，但连接它们的重要中间知识 B/C 缺失。
+
+关键要求：必须结合用户画像判断断层是否值得学习。不能机械地认为所有缺失的知识都值得补齐。
+
+请输出严格的 JSON 数组：
+[
+  {
+    "gapDescription": "缺失的知识是什么",
+    "recommended": true,
+    "reason": "为什么值得/不值得学习（结合用户职业与目标）",
+    "fromKnowledgeId": "已有的知识 A 的 id（可选）",
+    "toKnowledgeId": "已有的知识 D 的 id（可选）"
+  }
+]
+
+只输出真正重要的断层，最多 3 个。只输出 JSON 数组。`
+}
