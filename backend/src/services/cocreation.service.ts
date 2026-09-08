@@ -33,6 +33,23 @@ function parseConsensus(reply: string): { reached: boolean; draft: KnowledgeDraf
   }
 }
 
+// 从 AI 回复中解析结构化追问列表（表单式追问）
+function parseQuestions(reply: string): { id: string; text: string }[] {
+  const m = reply.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/)
+  if (!m) return []
+  try {
+    const arr = JSON.parse(m[1])
+    if (Array.isArray(arr)) {
+      return arr
+        .filter((q) => q && typeof q.text === 'string' && q.text.trim())
+        .map((q, i) => ({ id: q.id ?? `q${i + 1}`, text: q.text.trim() }))
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
 export async function discuss(userId: string, sessionId: string | null, userMessage: string) {
   let session = sessionId
     ? await prisma.conversationSession.findUnique({ where: { id: sessionId } })
@@ -82,6 +99,7 @@ export async function discuss(userId: string, sessionId: string | null, userMess
   return {
     sessionId: session.id,
     reply,
+    questions: parseQuestions(reply),
     consensusReached: consensus.reached,
     draft: consensus.draft,
   }
@@ -180,7 +198,7 @@ async function evolveKnowledge(
 export async function confirmKnowledge(userId: string, sessionId: string | null, input: ConfirmInput) {
   const title = input.draft.title ?? '未命名知识'
   const coreConclusion = input.draft.coreConclusion ?? input.draft.title ?? ''
-  const sourceType = input.sourceType ?? 'AI 讨论'
+  const sourceType = input.sourceType ?? '自己思考的'
 
   // P0-1 修复：AI 自动分类（未手动指定分类时调用）
   let categoryPath = input.categoryPath

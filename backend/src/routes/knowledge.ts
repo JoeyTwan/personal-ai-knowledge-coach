@@ -7,6 +7,7 @@ import {
   updateKnowledge,
   setKnowledgeStatus,
   deleteKnowledge,
+  listCategories,
 } from '../services/knowledge.service'
 
 export async function knowledgeRoutes(app: FastifyInstance) {
@@ -25,6 +26,11 @@ export async function knowledgeRoutes(app: FastifyInstance) {
       status: q.status,
       type: q.type,
     })
+  })
+
+  app.get('/api/categories', async () => {
+    const userId = await getDefaultUserId()
+    return listCategories(userId)
   })
 
   app.get('/api/knowledge/:id', async (req, reply) => {

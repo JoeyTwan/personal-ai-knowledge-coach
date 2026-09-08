@@ -2,9 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --paper: #faf6ef;
-  --ink: #1b1a18;
+/* ===== 主题变量：暗夜（默认） ===== */
+:root,
+[data-theme='dark'] {
+  --bg: 18 16 12; /* 墨黑，带极微暖调 */
+  --surface: 28 24 18; /* 卡片表面 */
+  --surface2: 40 34 25; /* 浮起 / 悬停 */
+  --text: 236 230 218; /* 暖米白 */
+  --text2: 168 158 142; /* 暖灰 */
+  --text3: 111 104 90; /* 更弱 */
+  --accent: 200 163 95; /* 暖金 */
+  --accentStrong: 224 192 132; /* 亮金 */
+  --success: 111 196 144; /* 柔和绿 */
+  --danger: 231 124 116; /* 柔和红 */
+  color-scheme: dark;
+}
+
+/* ===== 主题变量：明亮 ===== */
+[data-theme='light'] {
+  --bg: 250 247 240; /* 暖米白 */
+  --surface: 255 255 255;
+  --surface2: 241 235 224;
+  --text: 28 25 21; /* 炭黑 */
+  --text2: 138 131 119;
+  --text3: 179 171 156;
+  --accent: 168 136 63;
+  --accentStrong: 143 113 44;
+  --success: 22 138 80;
+  --danger: 190 45 45;
+  color-scheme: light;
 }
 
 * {
@@ -15,12 +41,17 @@ html,
 body {
   padding: 0;
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  background: rgb(var(--bg));
+  color: rgb(var(--text));
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01' on, 'kern' on;
+}
+
+body {
+  transition: background-color 0.35s ease, color 0.35s ease;
 }
 
 a {
@@ -29,34 +60,208 @@ a {
 }
 
 ::selection {
-  background: #c2a36a33;
+  background: rgb(var(--accent) / 0.28);
 }
 
-/* 极简按钮 */
+/* 细腻滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--text3)) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--text3) / 0.5);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 全局焦点环：克制而清晰 */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+/* ===== 极简按钮 ===== */
 .btn {
-  @apply inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium transition-colors;
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-200;
+}
+.btn:active {
+  transform: scale(0.98);
 }
 .btn-primary {
-  @apply bg-ink text-paper hover:opacity-90;
+  @apply bg-gold text-canvas hover:bg-gold-bright;
+  box-shadow: 0 1px 2px rgb(var(--accent) / 0.3);
 }
 .btn-ghost {
-  @apply border border-ink/20 text-ink hover:bg-ink/5;
+  @apply border border-ink/15 text-ink hover:border-ink/30 hover:bg-ink/5;
 }
 .btn-gold {
-  @apply bg-gold/15 text-ink hover:bg-gold/25;
+  @apply bg-gold/12 text-gold hover:bg-gold/20;
 }
 
-/* 卡片 */
+/* ===== 卡片 ===== */
 .card {
-  @apply rounded-2xl border border-ink/8 bg-white/60 p-5;
+  @apply rounded-2xl border border-ink/8 bg-surface p-5;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 4px 16px rgb(0 0 0 / 0.04);
 }
 
-/* 输入框 */
+/* ===== 输入框 ===== */
 .input {
-  @apply w-full rounded-xl border border-ink/15 bg-white/70 px-4 py-3 text-[15px] outline-none transition focus:border-gold/60 focus:ring-2 focus:ring-gold/20;
+  @apply w-full rounded-xl border border-ink/12 bg-surface px-4 py-3 text-[15px] text-ink outline-none transition;
+}
+.input::placeholder {
+  color: rgb(var(--text3));
+}
+.input:focus {
+  border-color: rgb(var(--accent) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--accent) / 0.18);
 }
 
-/* 标题 */
+/* ===== 标题（日式明朝体） ===== */
 .h-serif {
+  font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', serif;
   letter-spacing: 0.01em;
+}
+
+/* ===== 细分割线 ===== */
+.hairline {
+  height: 1px;
+  background: linear-gradient(to right, rgb(var(--text) / 0.1), transparent);
+}
+
+/* ===== 骨架屏 ===== */
+.skeleton {
+  @apply animate-pulse rounded-lg;
+  background: rgb(var(--text) / 0.08);
+}
+
+/* ===== Markdown 排版（prose，明暗自动适配） ===== */
+.prose {
+  font-size: 15px;
+  line-height: 1.75;
+  color: rgb(var(--text));
+  word-break: break-word;
+}
+.prose > :first-child {
+  margin-top: 0;
+}
+.prose > :last-child {
+  margin-bottom: 0;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 1.2em 0 0.5em;
+  color: rgb(var(--text));
+}
+.prose h1 {
+  font-size: 1.35em;
+}
+.prose h2 {
+  font-size: 1.2em;
+}
+.prose h3 {
+  font-size: 1.08em;
+}
+.prose h4 {
+  font-size: 1em;
+}
+.prose p {
+  margin: 0.55em 0;
+}
+.prose ul,
+.prose ol {
+  margin: 0.55em 0;
+  padding-left: 1.5em;
+}
+.prose ul {
+  list-style: disc;
+}
+.prose ol {
+  list-style: decimal;
+}
+.prose li {
+  margin: 0.28em 0;
+}
+.prose li > ul,
+.prose li > ol {
+  margin: 0.15em 0;
+}
+.prose strong {
+  font-weight: 600;
+  color: rgb(var(--text));
+}
+.prose em {
+  font-style: italic;
+}
+.prose a {
+  color: rgb(var(--accentStrong));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose a:hover {
+  color: rgb(var(--accent));
+}
+.prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: rgb(var(--text) / 0.08);
+  padding: 0.15em 0.4em;
+  border-radius: 6px;
+}
+.prose pre {
+  background: rgb(0 0 0 / 0.28);
+  border: 1px solid rgb(var(--text) / 0.1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 0.7em 0;
+  line-height: 1.6;
+}
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.86em;
+  color: rgb(var(--text));
+}
+.prose blockquote {
+  margin: 0.7em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid rgb(var(--accent) / 0.6);
+  color: rgb(var(--text2));
+}
+.prose blockquote p {
+  margin: 0.3em 0;
+}
+.prose hr {
+  border: none;
+  height: 1px;
+  background: rgb(var(--text) / 0.12);
+  margin: 1.2em 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  margin: 0.7em 0;
+  display: block;
+  overflow-x: auto;
+}
+.prose th,
+.prose td {
+  border: 1px solid rgb(var(--text) / 0.15);
+  padding: 0.45em 0.7em;
+  text-align: left;
+}
+.prose th {
+  background: rgb(var(--text) / 0.06);
+  font-weight: 600;
 }

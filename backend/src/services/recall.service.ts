@@ -33,7 +33,8 @@ export async function searchKnowledge(userId: string, question: string) {
   // 按命中词数降序排序，命中越多越相关；过滤掉零命中，取前 10
   const scored = candidates
     .map((k) => {
-      const haystack = `${k.title} ${k.coreConclusion} ${k.detailExplanation ?? ''}`
+      const tagNames = k.tags.map((t) => t.name).join(' ')
+      const haystack = `${k.title} ${k.coreConclusion} ${k.briefExplanation ?? ''} ${k.detailExplanation ?? ''} ${k.example ?? ''} ${tagNames}`
       const hitCount = tokens.filter((t) => haystack.includes(t)).length
       return { k, hitCount }
     })

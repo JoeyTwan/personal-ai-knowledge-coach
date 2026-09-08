@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { apiGet, apiPost, apiDelete, API_BASE } from '@/lib/api'
+import Markdown from '@/components/Markdown'
 
 export default function KnowledgeDetailPage() {
   const params = useParams()
@@ -57,7 +58,7 @@ export default function KnowledgeDetailPage() {
   }
 
   if (loading) return <p className="text-sm text-muted">加载中…</p>
-  if (error) return <p className="text-sm text-red-500">{error}</p>
+  if (error) return <p className="text-sm text-danger">{error}</p>
   if (!k) return <p className="text-sm text-muted">知识不存在</p>
 
   const relations = [
@@ -106,7 +107,7 @@ export default function KnowledgeDetailPage() {
       {k.detailExplanation && (
         <section>
           <h2 className="mb-2 text-[15px] font-semibold">详细解释</h2>
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-ink/85">{k.detailExplanation}</p>
+          <Markdown content={k.detailExplanation} />
         </section>
       )}
 
@@ -204,7 +205,7 @@ export default function KnowledgeDetailPage() {
             恢复
           </button>
         )}
-        <button className="btn btn-ghost text-red-500" onClick={remove}>
+        <button className="btn btn-ghost text-danger" onClick={remove}>
           删除
         </button>
       </section>

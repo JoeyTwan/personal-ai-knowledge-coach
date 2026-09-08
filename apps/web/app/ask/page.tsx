@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { apiPost } from '@/lib/api'
+import Markdown from '@/components/Markdown'
 
 export default function AskPage() {
   const [question, setQuestion] = useState('')
@@ -54,7 +55,7 @@ export default function AskPage() {
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
       {answer && (
         <section className="card">

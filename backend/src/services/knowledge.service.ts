@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma'
+import { tokenize } from '../lib/jieba'
 
 export interface KnowledgeSourceInput {
   type: string
@@ -116,11 +117,25 @@ export async function listKnowledge(userId: string, filters: ListKnowledgeFilter
   if (filters.categoryId) where.categoryId = filters.categoryId
   if (filters.type) where.type = filters.type
   if (filters.search) {
-    where.OR = [
-      { title: { contains: filters.search } },
-      { coreConclusion: { contains: filters.search } },
-      { detailExplanation: { contains: filters.search } },
-    ]
+    const tokens = tokenize(filters.search)
+    if (tokens.length > 0) {
+      // 中文分词模糊匹配：任一关键词命中标题/结论/解释/示例/标签即召回
+      where.OR = tokens.map((t) => ({
+        OR: [
+          { title: { contains: t } },
+          { coreConclusion: { contains: t } },
+          { briefExplanation: { contains: t } },
+          { detailExplanation: { contains: t } },
+          { example: { contains: t } },
+          { tags: { some: { name: { contains: t } } } },
+        ],
+      }))
+    } else {
+      where.OR = [
+        { title: { contains: filters.search } },
+        { coreConclusion: { contains: filters.search } },
+      ]
+    }
   }
   const items = await prisma.knowledge.findMany({
     where,
@@ -214,4 +229,44 @@ export async function deleteKnowledge(userId: string, id: string) {
   const existing = await prisma.knowledge.findFirst({ where: { id, userId } })
   if (!existing) return null
   return prisma.knowledge.delete({ where: { id } })
+}
+
+export interface CategoryNode {
+  id: string
+  name: string
+  count: number
+  children: CategoryNode[]
+}
+
+// 分类树：每个节点带「该分类及子分类下的活跃知识总数」，用于知识库侧边栏
+export async function listCategories(userId: string): Promise<CategoryNode[]> {
+  const cats = await prisma.category.findMany({
+    include: {
+      knowledges: { where: { userId, status: 'active' }, select: { id: true } },
+    },
+  })
+
+  const nodes = new Map<string, CategoryNode>()
+  for (const c of cats) {
+    nodes.set(c.id, { id: c.id, name: c.name, count: c.knowledges.length, children: [] })
+  }
+
+  const roots: CategoryNode[] = []
+  for (const c of cats) {
+    const node = nodes.get(c.id)!
+    if (c.parentId && nodes.has(c.parentId)) {
+      nodes.get(c.parentId)!.children.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+
+  const accumulate = (node: CategoryNode): number => {
+    let total = node.count
+    for (const child of node.children) total += accumulate(child)
+    node.count = total
+    return total
+  }
+  roots.forEach(accumulate)
+  return roots
 }

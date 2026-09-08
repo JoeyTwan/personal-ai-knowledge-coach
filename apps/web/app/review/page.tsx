@@ -86,7 +86,7 @@ export default function ReviewPage() {
         <p className="mt-1 text-sm text-muted">检测你真正掌握了什么。</p>
       </header>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
       {/* 计划 */}
       {step === 'idle' && (
@@ -167,7 +167,7 @@ export default function ReviewPage() {
           <div className="flex items-center gap-2">
             <span
               className={`rounded-full px-3 py-1 text-[13px] font-medium ${
-                feedback.isCorrect ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                feedback.isCorrect ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'
               }`}
             >
               {feedback.isCorrect ? '回答正确' : '回答有误'}

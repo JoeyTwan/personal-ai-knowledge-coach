@@ -89,7 +89,7 @@ export default function ProfilePage() {
         </button>
       </header>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
       {!profile && (
         <div className="card py-10 text-center text-sm text-muted">
