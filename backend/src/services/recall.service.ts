@@ -45,7 +45,12 @@ export async function searchKnowledge(userId: string, question: string) {
   return scored.map((s) => s.k)
 }
 
-export async function ask(userId: string, question: string) {
+export interface AskMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export async function ask(userId: string, question: string, history: AskMessage[] = []) {
   const related = await searchKnowledge(userId, question)
   const profile = await getProfileText(userId)
 
@@ -72,8 +77,11 @@ ${knowledgeContext}
 
 请回答用户问题。优先引用知识库内容，并明确区分「知识库已有的信息」和「AI 当前补充的信息」。`
 
+  // 带上最近对话历史，形成多轮上下文；最多保留最近 10 条，避免 token 过长
+  const recentHistory = history.slice(-10)
   const answer = await chat([
     { role: 'system', content: askSystem(profile) },
+    ...recentHistory.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: userPrompt },
   ])
 

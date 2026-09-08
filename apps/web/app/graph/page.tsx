@@ -76,15 +76,16 @@ export default function GraphPage() {
     return () => obs.disconnect()
   }, [])
 
-  // 测量容器尺寸
+  // 测量容器尺寸：依赖 nodes.length，确保容器挂载后再测量；用 ResizeObserver 持续监听
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const update = () => setSize({ width: el.clientWidth, height: el.clientHeight })
     update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [nodes.length])
 
   const graphData = useMemo(
     () => ({ nodes, links: edges.map((e) => ({ ...e })) }),
