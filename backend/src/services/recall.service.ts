@@ -45,12 +45,41 @@ export async function searchKnowledge(userId: string, question: string) {
   return scored.map((s) => s.k)
 }
 
+export interface AskRelated {
+  id: string
+  title: string
+  coreConclusion: string
+  createdAt: string
+}
+
 export interface AskMessage {
   role: 'user' | 'assistant'
   content: string
+  related?: AskRelated[]
 }
 
-export async function ask(userId: string, question: string, history: AskMessage[] = []) {
+// 解析会话里存成 JSON 字符串的消息流，容错
+function parseMessages(raw: string): AskMessage[] {
+  try {
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter((m) => m && typeof m.content === 'string')
+  } catch {
+    return []
+  }
+}
+
+function generateTitle(q: string): string {
+  const t = q.replace(/\s+/g, ' ').trim()
+  return t.length > 20 ? `${t.slice(0, 20)}…` : t
+}
+
+export async function ask(
+  userId: string,
+  question: string,
+  history: AskMessage[] = [],
+  sessionId?: string,
+) {
   const related = await searchKnowledge(userId, question)
   const profile = await getProfileText(userId)
 
@@ -85,13 +114,83 @@ ${knowledgeContext}
     { role: 'user', content: userPrompt },
   ])
 
+  const relatedOut = related.map((k) => ({
+    id: k.id,
+    title: k.title,
+    coreConclusion: k.coreConclusion,
+    createdAt: k.createdAt.toISOString(),
+  }))
+
+  // 持久化到会话，返回会话 id 和标题
+  const session = await persistAskSession(userId, sessionId, question, answer, relatedOut)
+
   return {
     answer,
-    related: related.map((k) => ({
-      id: k.id,
-      title: k.title,
-      coreConclusion: k.coreConclusion,
-      createdAt: k.createdAt,
-    })),
+    related: relatedOut,
+    sessionId: session.id,
+    title: session.title,
   }
+}
+
+// 把本次问答追加进会话（有 sessionId 则更新，否则新建）
+async function persistAskSession(
+  userId: string,
+  sessionId: string | undefined,
+  question: string,
+  answer: string,
+  related: AskRelated[],
+) {
+  const pair: AskMessage[] = [
+    { role: 'user', content: question },
+    { role: 'assistant', content: answer, related },
+  ]
+
+  if (sessionId) {
+    const existing = await prisma.conversationSession.findFirst({ where: { id: sessionId, userId } })
+    if (existing) {
+      const messages = [...parseMessages(existing.messages), ...pair]
+      const title = existing.title || generateTitle(question)
+      await prisma.conversationSession.update({
+        where: { id: sessionId },
+        data: { messages: JSON.stringify(messages), title, updatedAt: new Date() },
+      })
+      return { id: sessionId, title }
+    }
+  }
+
+  const title = generateTitle(question)
+  const created = await prisma.conversationSession.create({
+    data: { userId, mode: 'ask', title, messages: JSON.stringify(pair) },
+  })
+  return { id: created.id, title }
+}
+
+// 列出问 AI 的历史会话（不含消息详情，只返回摘要）
+export async function listAskSessions(userId: string) {
+  const sessions = await prisma.conversationSession.findMany({
+    where: { userId, mode: 'ask' },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, title: true, updatedAt: true, messages: true },
+  })
+  return sessions.map((s) => ({
+    id: s.id,
+    title: s.title || '新对话',
+    updatedAt: s.updatedAt,
+    count: parseMessages(s.messages).length,
+  }))
+}
+
+// 读取单个会话的完整消息
+export async function getAskSession(userId: string, id: string) {
+  const s = await prisma.conversationSession.findFirst({ where: { id, userId, mode: 'ask' } })
+  if (!s) return null
+  return { id: s.id, title: s.title || '新对话', messages: parseMessages(s.messages) }
+}
+
+// 删除一个会话
+export async function deleteAskSession(userId: string, id: string) {
+  const s = await prisma.conversationSession.findFirst({ where: { id, userId, mode: 'ask' } })
+  if (!s) return null
+  await prisma.conversationSession.delete({ where: { id } })
+  return { ok: true }
 }

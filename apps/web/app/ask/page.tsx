@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { apiPost } from '@/lib/api'
+import { apiGet, apiPost, apiDelete } from '@/lib/api'
 import Markdown from '@/components/Markdown'
 import AutoTextarea from '@/components/AutoTextarea'
 
@@ -20,6 +20,13 @@ interface Msg {
   related?: Related[]
 }
 
+interface Session {
+  id: string
+  title: string
+  updatedAt: string
+  count: number
+}
+
 let uid = 0
 const nextId = () => `m${Date.now().toString(36)}${(uid++).toString(36)}`
 
@@ -28,59 +35,49 @@ const SAMPLES = [
   '客户需要一个 AI 服务器整机集成方案，我以前记录过合适的公司吗？',
 ]
 
-// demo 模式：URL 带 ?demo=1 时预设一条带完整 Markdown 的对话，便于预览渲染效果
-const DEMO_MESSAGES: Msg[] = [
-  {
-    id: 'demo-u1',
-    role: 'user',
-    content: '帮我梳理一下最近记录的 Transformer 相关知识',
-  },
-  {
-    id: 'demo-a1',
-    role: 'assistant',
-    content: `结合你最近记录的内容，我帮你梳理三条主线：
-
-## 1. 架构本质
-你在 **2026-09-04** 记录过：Transformer 是一种基于自注意力机制的神经网络架构，能一次性建模序列中所有位置的关系。
-
-## 2. 算力根源
-大模型的训练和推理需要大量 GPU 算力，这也是 AI 服务器需求增长的根源。
-
-## 3. 业务延伸
-- ViT 是 Transformer 在视觉领域的应用
-- 昇腾 910B 单卡 560 TOPS INT8，适合大模型推理
-
-> 📚 以上三条都来自你的知识库原文；
-> 🤖 AI 补充：Transformer 与 CNN 相比，归纳偏置更弱，更依赖数据规模。`,
-    related: [
-      {
-        id: 'r1',
-        title: 'Transformer 是什么',
-        coreConclusion: '基于自注意力机制的神经网络架构，是当前大语言模型的基础。',
-        createdAt: '2026-09-04',
-      },
-      {
-        id: 'r2',
-        title: '大模型训练与推理需要大量算力',
-        coreConclusion: 'Transformer 类大模型的训练和推理需要大量 GPU 算力。',
-        createdAt: '2026-09-04',
-      },
-    ],
-  },
-]
+function formatTime(d: string) {
+  const date = new Date(d)
+  const diff = Date.now() - date.getTime()
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h} 小时前`
+  const days = Math.floor(h / 24)
+  if (days < 7) return `${days} 天前`
+  return date.toLocaleDateString('zh-CN')
+}
 
 export default function AskPage() {
-  const [messages, setMessages] = useState<Msg[]>(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('demo')) {
-      return DEMO_MESSAGES
-    }
-    return []
-  })
+  const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copiedId, setCopiedId] = useState('')
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined)
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [showHistory, setShowHistory] = useState(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('history')) {
+      return true
+    }
+    return false
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // 加载历史会话列表
+  async function loadSessions() {
+    try {
+      const list = await apiGet<Session[]>('/api/ask/sessions')
+      setSessions(list)
+    } catch {
+      // 忽略，历史列表加载失败不影响对话
+    }
+  }
+
+  useEffect(() => {
+    loadSessions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 有新消息或进入思考态时，自动滚到底部
   useEffect(() => {
@@ -99,19 +96,67 @@ export default function AskPage() {
     setLoading(true)
 
     try {
-      const res = await apiPost<{ answer: string; related: Related[] }>('/api/ask', {
+      const res = await apiPost<{
+        answer: string
+        related: Related[]
+        sessionId: string
+        title: string
+      }>('/api/ask', {
         question: q,
         history,
+        sessionId,
       })
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: 'assistant', content: res.answer, related: res.related ?? [] },
       ])
+      if (res.sessionId && res.sessionId !== sessionId) {
+        setSessionId(res.sessionId)
+      }
+      loadSessions()
     } catch (e: any) {
       setError(e.message ?? '回答出错，请稍后重试')
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadSession(id: string) {
+    try {
+      const s = await apiGet<{
+        id: string
+        title: string
+        messages: { role: 'user' | 'assistant'; content: string; related?: Related[] }[]
+      }>(`/api/ask/sessions/${id}`)
+      if (s && Array.isArray(s.messages)) {
+        setMessages(s.messages.map((m) => ({ ...m, id: nextId() })))
+        setSessionId(s.id)
+      }
+      setShowHistory(false)
+    } catch (e: any) {
+      setError(e.message ?? '加载会话失败')
+    }
+  }
+
+  async function deleteSession(id: string) {
+    try {
+      await apiDelete(`/api/ask/sessions/${id}`)
+      setSessions((prev) => prev.filter((s) => s.id !== id))
+      if (sessionId === id) {
+        setMessages([])
+        setSessionId(undefined)
+      }
+    } catch (e: any) {
+      setError(e.message ?? '删除会话失败')
+    }
+  }
+
+  function newChat() {
+    setMessages([])
+    setSessionId(undefined)
+    setInput('')
+    setError('')
+    setShowHistory(false)
   }
 
   async function copy(m: Msg) {
@@ -131,8 +176,59 @@ export default function AskPage() {
   return (
     <div className="flex h-[calc(100dvh-9rem)] min-h-[520px] flex-col">
       <header className="mb-4">
-        <h1 className="h-serif text-xl font-semibold">问 AI</h1>
-        <p className="mt-1 text-sm text-muted">过去的你，帮助现在的你解决问题。</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="h-serif text-xl font-semibold">问 AI</h1>
+            <p className="mt-1 text-sm text-muted">过去的你，帮助现在的你解决问题。</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              className="btn btn-ghost !px-3 !py-1.5 text-[13px]"
+              onClick={() => setShowHistory((v) => !v)}
+            >
+              历史记录
+            </button>
+            <button
+              className="btn btn-gold !px-3 !py-1.5 text-[13px]"
+              onClick={newChat}
+            >
+              新对话
+            </button>
+          </div>
+        </div>
+
+        {/* 历史会话面板 */}
+        {showHistory && (
+          <div className="mt-3 max-h-64 overflow-y-auto rounded-2xl border border-ink/8 bg-surface p-2">
+            {sessions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted">还没有历史对话</p>
+            ) : (
+              sessions.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => loadSession(s.id)}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 transition hover:bg-ink/5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] text-ink">{s.title}</p>
+                    <p className="mt-0.5 text-[11px] text-faint">
+                      {formatTime(s.updatedAt)} · {s.count} 条消息
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteSession(s.id)
+                    }}
+                    className="shrink-0 rounded-md px-2 py-1 text-[11px] text-muted transition hover:text-danger"
+                  >
+                    删除
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </header>
 
       {/* 消息区 */}
