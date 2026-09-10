@@ -1,10 +1,12 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8787'
 
 export async function api<T = any>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  // 无 body 时不带 Content-Type，否则后端会按空 JSON 解析并报错
+  const headers = new Headers(options?.headers)
+  if (options?.body !== undefined && options.body !== null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
   if (!res.ok) {
     let msg = '请求失败'
     try {

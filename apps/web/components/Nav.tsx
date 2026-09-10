@@ -11,7 +11,7 @@ const links = [
   { href: '/graph', label: '图谱' },
   { href: '/ask', label: '问 AI' },
   { href: '/review', label: '复习' },
-  { href: '/profile', label: '我的' },
+  { href: '/profile', label: '我的认知' },
 ]
 
 // 手机端底部导航：只放最高频的五个入口（手机以查询和随手问为主）
@@ -20,7 +20,7 @@ const mobileLinks = [
   { href: '/ask', label: '问 AI', icon: ChatIcon },
   { href: '/record', label: '记录', icon: PlusIcon },
   { href: '/knowledge', label: '知识库', icon: BookIcon },
-  { href: '/profile', label: '我的', icon: UserIcon },
+  { href: '/profile', label: '认知', icon: UserIcon },
 ]
 
 export default function Nav() {

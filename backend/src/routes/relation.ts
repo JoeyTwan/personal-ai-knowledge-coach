@@ -1,6 +1,12 @@
 import { FastifyInstance } from 'fastify'
 import { getDefaultUserId } from '../services/user.service'
-import { discoverRelations, getGraph, getKnowledgeRelations } from '../services/relation.service'
+import {
+  discoverRelations,
+  getGraph,
+  getKnowledgeRelations,
+  getRebuildStatus,
+  startRebuildRelations,
+} from '../services/relation.service'
 
 export async function relationRoutes(app: FastifyInstance) {
   app.get('/api/graph', async () => {
@@ -18,5 +24,16 @@ export async function relationRoutes(app: FastifyInstance) {
     const userId = await getDefaultUserId()
     const { id } = req.params as { id: string }
     return discoverRelations(userId, id)
+  })
+
+  // 存量知识一次性补齐关系，后台跑，前端轮询进度
+  app.post('/api/relations/rebuild', async () => {
+    const userId = await getDefaultUserId()
+    return startRebuildRelations(userId)
+  })
+
+  app.get('/api/relations/rebuild/status', async () => {
+    const userId = await getDefaultUserId()
+    return getRebuildStatus(userId)
   })
 }

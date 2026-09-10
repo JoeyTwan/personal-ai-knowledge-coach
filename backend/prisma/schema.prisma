@@ -26,6 +26,7 @@ model User {
   recommendations LearningRecommendation[]
   gaps            KnowledgeGap[]
   relations       KnowledgeRelation[]
+  insights        AiInsight[]
 }
 
 model Knowledge {
@@ -134,11 +135,47 @@ model UserProfile {
   shallowAreas          String? // JSON
   commonMistakes        String? // JSON
   weakDirections        String? // JSON
+
+  // ===== 我的认知（v2）=====
+  identity          String? // 「我是谁」的凝练表达
+  currentStage      String? // 当前阶段
+  growthGoals       String? // JSON 当前成长目标
+  longTermGoals     String? // JSON 长期成长方向
+  desiredAbilities  String? // JSON 希望获得的能力
+  aiGrowthDirection String? // AI 理解的成长方向
+  cognitiveTraits   String? // 认知特点（AI 推断）
+  learningStyle     String? // JSON 我的学习方式
+  depthPreferences  String? // JSON 各领域希望掌握到什么程度
+  growthHistory     String? // JSON 成长轨迹
+  growthSummary     String? // 阶段总结
+  aiSummary         String? // AI 眼中的我
+  aiSummaryAt       DateTime?
+  insightUpdatedAt  DateTime?
+
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// AI 对用户的长期判断：内容 + 依据 + 置信度 + 用户确认/纠正
+model AiInsight {
+  id          String    @id @default(cuid())
+  type        String // ai_summary | cognitive_trait | learning_style | depth_preference | growth_direction | map_verdict
+  content     String
+  evidence    String?
+  confidence  Float?
+  confirmed   Boolean   @default(false)
+  corrected   String?
+  correctedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
 }
 
 model UserKnowledgeState {
@@ -225,6 +262,10 @@ model KnowledgeGap {
   gapDescription String
   recommended    Boolean  @default(false)
   reason         String?
+  // 针对该用户的建议掌握深度：概念了解 / 原理级 / 能判断 / 深入
+  targetDepth    String?
+  // 所属领域（一级或二级分类名），用于知识版图归位
+  area           String?
   status         String   @default("open")
   createdAt      DateTime @default(now())
 

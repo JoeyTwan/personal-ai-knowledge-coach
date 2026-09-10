@@ -9,6 +9,7 @@ import { profileRoutes } from './routes/profile'
 import { mergeRoutes } from './routes/merge'
 import { exportRoutes } from './routes/export'
 import { danmakuRoutes } from './routes/danmaku'
+import { cognitionRoutes } from './routes/cognition'
 
 export function buildServer() {
   const app = Fastify({ logger: true })
@@ -30,6 +31,7 @@ export function buildServer() {
   app.register(mergeRoutes)
   app.register(exportRoutes)
   app.register(danmakuRoutes)
+  app.register(cognitionRoutes)
 
   return app
 }

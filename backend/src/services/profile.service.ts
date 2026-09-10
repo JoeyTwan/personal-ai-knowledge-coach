@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma'
 import { chatJSON } from '../ai/client'
-import { inferProfileSystem, recommendSystem, gapSystem } from '../ai/prompts'
+import { inferProfileSystem, recommendSystem, gapSystem, gapEnrichSystem } from '../ai/prompts'
 import { getProfileText } from './user.service'
 
 interface ProfilePatch {
@@ -160,21 +160,87 @@ ${states.map((s) => `${s.knowledge.title}：理解 ${s.understanding.toFixed(1)}
   return created
 }
 
+// 给已有断层补齐「学到什么程度」和「所属领域」。
+// 只在确实缺字段时才调用 AI，补齐过就不再重复花钱。
+export async function enrichGaps(userId: string) {
+  const areaRows = await prisma.knowledge.findMany({
+    where: { userId, status: 'active' },
+    select: { category: { select: { name: true } } },
+  })
+  const areaNames = Array.from(
+    new Set(areaRows.map((k) => k.category?.name).filter((x): x is string => Boolean(x))),
+  )
+
+  const gaps = await prisma.knowledgeGap.findMany({
+    where: { userId, status: 'open' },
+    select: { id: true, gapDescription: true, reason: true, targetDepth: true, area: true },
+  })
+  const need = gaps.filter((g) => !g.targetDepth || (!g.area && areaNames.length > 0))
+  if (need.length === 0) return 0
+
+  const profileText = await getProfileText(userId)
+
+  interface EnrichDraft {
+    id: string
+    targetDepth?: string
+    area?: string
+  }
+  const result = await chatJSON<EnrichDraft[]>([
+    { role: 'system', content: gapEnrichSystem() },
+    {
+      role: 'user',
+      content: `用户画像：\n${profileText || '无'}
+
+可选领域名（area 必须从这里选）：${areaNames.join('、') || '无'}
+
+待补全的断层：
+${need.map((g) => `[${g.id}] ${g.gapDescription}（已知理由：${g.reason || '无'}）`).join('\n')}`,
+    },
+  ])
+
+  let n = 0
+  for (const r of result) {
+    const target = need.find((g) => g.id === r.id)
+    if (!target) continue
+    await prisma.knowledgeGap.update({
+      where: { id: target.id },
+      data: {
+        targetDepth: r.targetDepth ?? target.targetDepth,
+        area: r.area && areaNames.includes(r.area) ? r.area : target.area,
+      },
+    })
+    n++
+  }
+  return n
+}
+
 // 知识断层发现
 export async function discoverGaps(userId: string) {
   const knowledges = await prisma.knowledge.findMany({
     where: { userId, status: 'active' },
-    select: { id: true, title: true, coreConclusion: true, type: true },
+    select: {
+      id: true,
+      title: true,
+      coreConclusion: true,
+      type: true,
+      category: { select: { name: true } },
+    },
     orderBy: { updatedAt: 'desc' },
-    take: 40,
+    take: 60,
   })
   if (knowledges.length < 2) return []
   const profile = await getProfileText(userId)
+
+  const areaNames = Array.from(
+    new Set(knowledges.map((k) => k.category?.name).filter((x): x is string => Boolean(x))),
+  )
 
   interface GapDraft {
     gapDescription: string
     recommended: boolean
     reason?: string
+    targetDepth?: string
+    area?: string
     fromKnowledgeId?: string
     toKnowledgeId?: string
   }
@@ -185,22 +251,36 @@ export async function discoverGaps(userId: string) {
       content: `用户画像：\n${profile || '无'}
 
 用户知识列表：
-${knowledges.map((k) => `[${k.id}] ${k.title}：${k.coreConclusion}`).join('\n')}
+${knowledges
+  .map((k) => `[${k.id}] ${k.category?.name ? `（${k.category.name}）` : ''}${k.title}：${k.coreConclusion}`)
+  .join('\n')}
+
+可选的领域名（area 必须从这里选）：${areaNames.join('、') || '无'}
 
 请发现用户知识体系中的断层。`,
     },
   ])
 
+  // 已有的未处理断层不重复创建，避免反复发现堆出一堆重复项
+  const existing = await prisma.knowledgeGap.findMany({
+    where: { userId, status: 'open' },
+    select: { gapDescription: true },
+  })
+  const existingSet = new Set(existing.map((g) => g.gapDescription.trim()))
+
   const created = []
   for (const g of gaps) {
+    if (!g.gapDescription || existingSet.has(g.gapDescription.trim())) continue
     const gap = await prisma.knowledgeGap.create({
       data: {
         userId,
         gapDescription: g.gapDescription,
         recommended: g.recommended,
         reason: g.reason,
-        fromKnowledgeId: g.fromKnowledgeId,
-        toKnowledgeId: g.toKnowledgeId,
+        targetDepth: g.targetDepth ?? null,
+        area: g.area && areaNames.includes(g.area) ? g.area : null,
+        fromKnowledgeId: knowledges.some((k) => k.id === g.fromKnowledgeId) ? g.fromKnowledgeId : null,
+        toKnowledgeId: knowledges.some((k) => k.id === g.toKnowledgeId) ? g.toKnowledgeId : null,
       },
     })
     created.push(gap)
