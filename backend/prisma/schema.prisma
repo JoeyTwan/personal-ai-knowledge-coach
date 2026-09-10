@@ -39,6 +39,8 @@ model Knowledge {
   status            String   @default("active")
   confidence        Float?
   isOutdated        Boolean  @default(false)
+  // 弹幕要点：由 AI 把一条知识拆成的若干条独立短句，JSON 字符串数组
+  bullets           String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

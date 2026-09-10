@@ -3,6 +3,7 @@ import { chat, chatJSON } from '../ai/client'
 import { cocreateSystem, classifySystem, detectEvolutionSystem, extractKnowledgeSystem } from '../ai/prompts'
 import { getProfileText } from './user.service'
 import { createKnowledge } from './knowledge.service'
+import { generateBullets } from './bullets.service'
 import { discoverRelations } from './relation.service'
 import { maybeRefreshProfile } from './profile.service'
 
@@ -206,21 +207,35 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
   const coreConclusion = input.draft.coreConclusion ?? input.draft.title ?? ''
   const sourceType = input.sourceType ?? '自己思考的'
 
-  // P0-1 修复：AI 自动分类（未手动指定分类时调用）
+  // 并行执行两件互不依赖的 AI 任务：自动分类 + 弹幕要点拆解
   let categoryPath = input.categoryPath
   let tags = input.draft.tags ?? []
-  if (!categoryPath || categoryPath.length === 0) {
-    try {
-      const cls = await chatJSON<{ categoryPath: string[]; tags?: string[] }>([
-        { role: 'system', content: classifySystem() },
-        { role: 'user', content: `知识标题：${title}\n核心结论：${coreConclusion}\n请为这条知识自动归类。` },
-      ])
-      if (cls.categoryPath && cls.categoryPath.length > 0) categoryPath = cls.categoryPath
-      if (cls.tags && cls.tags.length > 0) tags = Array.from(new Set([...tags, ...cls.tags]))
-    } catch (e) {
-      console.error('[自动分类] 失败，改用类型兜底', e)
-    }
+  const bulletSource = {
+    title,
+    coreConclusion,
+    briefExplanation: input.draft.briefExplanation,
+    detailExplanation: input.draft.detailExplanation,
+    example: input.draft.example,
   }
+
+  const [cls, bullets] = await Promise.all([
+    !categoryPath || categoryPath.length === 0
+      ? chatJSON<{ categoryPath: string[]; tags?: string[] }>([
+          { role: 'system', content: classifySystem() },
+          {
+            role: 'user',
+            content: `知识标题：${title}\n核心结论：${coreConclusion}\n请为这条知识自动归类。`,
+          },
+        ]).catch((e) => {
+          console.error('[自动分类] 失败，改用类型兜底', e)
+          return null
+        })
+      : Promise.resolve(null),
+    generateBullets(bulletSource),
+  ])
+
+  if (cls?.categoryPath && cls.categoryPath.length > 0) categoryPath = cls.categoryPath
+  if (cls?.tags && cls.tags.length > 0) tags = Array.from(new Set([...tags, ...cls.tags]))
   // 兜底：分类仍为空时按类型落到「工作」或「思考」，确保不会出现没有分类的知识
   if (!categoryPath || categoryPath.length === 0) {
     categoryPath = fallbackCategoryPath(input.draft.type)
@@ -249,6 +264,11 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
         if (target) {
           const evolved = await evolveKnowledge(userId, target.id, input, sourceType, input.sourceDetail)
           if (evolved) {
+            // 内容演化后同步刷新弹幕要点
+            await prisma.knowledge.update({
+              where: { id: target.id },
+              data: { bullets: JSON.stringify(bullets) },
+            })
             if (sessionId) {
               await prisma.conversationSession.update({
                 where: { id: sessionId },
@@ -280,6 +300,7 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
     type: input.draft.type,
     tags,
     categoryPath,
+    bullets,
     sources: [
       { type: sourceType, detail: input.sourceDetail, occurredAt: new Date().toISOString() },
     ],

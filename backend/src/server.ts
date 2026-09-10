@@ -8,6 +8,7 @@ import { reviewRoutes } from './routes/review'
 import { profileRoutes } from './routes/profile'
 import { mergeRoutes } from './routes/merge'
 import { exportRoutes } from './routes/export'
+import { danmakuRoutes } from './routes/danmaku'
 
 export function buildServer() {
   const app = Fastify({ logger: true })
@@ -28,6 +29,7 @@ export function buildServer() {
   app.register(profileRoutes)
   app.register(mergeRoutes)
   app.register(exportRoutes)
+  app.register(danmakuRoutes)
 
   return app
 }

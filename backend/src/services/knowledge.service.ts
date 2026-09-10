@@ -19,6 +19,8 @@ export interface CreateKnowledgeInput {
   tags?: string[]
   sources?: KnowledgeSourceInput[]
   confidence?: number
+  // 弹幕要点（AI 拆解的短句，用于首页弹幕）
+  bullets?: string[]
 }
 
 // 根据分类路径找到或创建分类（树形）
@@ -57,6 +59,7 @@ export async function createKnowledge(userId: string, input: CreateKnowledgeInpu
       example: input.example ?? null,
       type: input.type ?? '概念',
       confidence: input.confidence ?? null,
+      bullets: input.bullets?.length ? JSON.stringify(input.bullets) : null,
       categoryId: category?.id ?? null,
       userId,
       tags: input.tags?.length

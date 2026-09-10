@@ -1,50 +1,38 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { apiGet } from '@/lib/api'
+import Danmaku from '@/components/Danmaku'
 
 export default function HomePage() {
   const [knowledges, setKnowledges] = useState<any[]>([])
-  const [plan, setPlan] = useState<any[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([apiGet<any[]>('/api/knowledge?status=active'), apiGet<any[]>('/api/review/plan')])
-      .then(([k, p]) => {
-        setKnowledges(k)
-        setPlan(p)
-      })
+    apiGet<any[]>('/api/knowledge?status=active')
+      .then(setKnowledges)
       .catch(() => setError('后端服务未启动，请先在项目根目录运行 npm run dev:backend'))
       .finally(() => setLoading(false))
   }, [])
 
-  const recent = knowledges.slice(0, 5)
+  const recent = knowledges.slice(0, 3)
+
+  const stats = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    return {
+      total: knowledges.length,
+      thisWeek: knowledges.filter((k) => new Date(k.createdAt).getTime() >= weekAgo).length,
+      tested: knowledges.filter((k) => (k.state?.reviewCount ?? 0) > 0).length,
+    }
+  }, [knowledges])
 
   return (
-    <div className="space-y-8">
-      {/* 顶部：自然语言入口 */}
-      <section className="pt-6">
-        <h1 className="h-serif text-2xl font-semibold leading-snug sm:text-3xl">
-          今天想学什么，
-          <br />
-          或者有什么问题？
-        </h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-muted">
-          这是你的私人 AI 知识教练。它记录你学到的东西，帮你建立关联，检测你是否真的掌握，并在未来调用过去的知识。
-        </p>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <Link href="/record" className="btn btn-primary">
-            记录新知识
-          </Link>
-          <Link href="/ask" className="btn btn-ghost">
-            问 AI
-          </Link>
-          <Link href="/review" className="btn btn-gold">
-            开始复习
-          </Link>
-        </div>
+    <div className="space-y-7">
+      <section className="pt-2">
+        <h1 className="h-serif mb-4 text-xl font-semibold sm:text-2xl">你学过的，正在飘着</h1>
+        <Danmaku />
       </section>
 
       {error && (
@@ -55,52 +43,61 @@ export default function HomePage() {
 
       {!loading && !error && (
         <>
-          {/* 今日知识状态 */}
-          <section>
-            <h2 className="h-serif mb-4 text-lg font-semibold">知识状态</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Stat label="累计知识" value={String(knowledges.length)} />
-              <Stat label="待巩固" value={String(plan.length)} />
-              <Stat label="本周复习" value={String(plan.filter((p) => p.reviewCount === 0).length)} />
-            </div>
+          <section className="flex flex-col gap-3 sm:flex-row">
+            <Link href="/ask" className="btn btn-primary sm:flex-1">
+              问 AI
+            </Link>
+            <Link href="/record" className="btn btn-ghost sm:flex-1">
+              记录新知识
+            </Link>
+          </section>
 
-            {recent.length > 0 && (
-              <div className="mt-5">
-                <h3 className="mb-2 text-[13px] text-muted">最近新增</h3>
-                <div className="space-y-2">
-                  {recent.map((k) => (
-                    <Link
-                      key={k.id}
-                      href={`/knowledge/${k.id}`}
-                      className="card block transition hover:border-gold/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[15px] font-medium">{k.title}</p>
-                          <p className="mt-1 line-clamp-2 text-[13px] text-muted">{k.coreConclusion}</p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-[11px]">{k.type}</span>
+          <section>
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="h-serif text-[15px] font-semibold">最近新增</h2>
+              <Link href="/knowledge" className="text-[13px] text-muted transition-colors hover:text-ink">
+                全部知识
+              </Link>
+            </div>
+            {recent.length > 0 ? (
+              <div className="space-y-2">
+                {recent.map((k) => (
+                  <Link
+                    key={k.id}
+                    href={`/knowledge/${k.id}`}
+                    className="card block transition hover:border-gold/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-medium">{k.title}</p>
+                        <p className="mt-1 line-clamp-2 text-[13px] text-muted">{k.coreConclusion}</p>
                       </div>
-                    </Link>
-                  ))}
-                </div>
+                      <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] text-gold">
+                        {k.type}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="card text-center">
+                <p className="text-[14px] text-muted">还没有知识，先去记录第一条吧</p>
               </div>
             )}
           </section>
 
-          {/* 复习卡片 */}
           <section>
-            <Link href="/review" className="card block transition hover:border-gold/40">
-              <h2 className="h-serif text-lg font-semibold">今日 / 本周复习</h2>
-              <p className="mt-2 text-sm text-muted">
-                {plan.length > 0
-                  ? `为你准备了 ${plan.length} 个待巩固的知识，预计 10 分钟。`
-                  : '暂时没有待复习的知识，先去记录一点新东西吧。'}
-              </p>
-              <span className="mt-3 inline-block rounded-full bg-ink px-4 py-1.5 text-[13px] text-paper">
-                开始复习 →
-              </span>
-            </Link>
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="累计知识" value={stats.total} />
+              <Stat label="本周新增" value={stats.thisWeek} />
+              <Stat label="自测过" value={stats.tested} />
+            </div>
+            <p className="mt-3 text-center text-[12px] text-faint">
+              想检验掌握程度时，可以去
+              <Link href="/review" className="ml-1 text-muted underline underline-offset-2 hover:text-ink">
+                自测一下
+              </Link>
+            </p>
           </section>
         </>
       )}
@@ -108,11 +105,11 @@ export default function HomePage() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="card">
-      <p className="text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-[13px] text-muted">{label}</p>
+    <div className="card text-center">
+      <p className="text-xl font-medium">{value}</p>
+      <p className="mt-1 text-[12px] text-muted">{label}</p>
     </div>
   )
 }

@@ -134,6 +134,35 @@ a {
   background: linear-gradient(to right, rgb(var(--text) / 0.1), transparent);
 }
 
+/* ===== 弹幕知识流：从右向左飞过 ===== */
+@keyframes danmaku-fly {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-100% - var(--travel, 100%)));
+  }
+}
+
+/* 速度滑杆：极简圆点 */
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  cursor: pointer;
+}
+
 /* ===== 骨架屏 ===== */
 .skeleton {
   @apply animate-pulse rounded-lg;
