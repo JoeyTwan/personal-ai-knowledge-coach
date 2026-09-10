@@ -2,7 +2,7 @@
   "name": "@coach/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "个人 AI 知识教练 · 后端 API",
+  "description": "人生知识库 · 后端 API",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

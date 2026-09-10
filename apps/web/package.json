@@ -2,7 +2,7 @@
   "name": "@coach/web",
   "version": "0.1.0",
   "private": true,
-  "description": "个人 AI 知识教练 · Web 前端",
+  "description": "人生知识库 · Web 前端",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",

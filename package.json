@@ -2,11 +2,10 @@
   "name": "personal-ai-knowledge-coach",
   "version": "0.1.0",
   "private": true,
-  "description": "个人 AI 知识教练：一个长期理解用户、组织用户知识、检测真实掌握程度并帮助用户持续成长的私人 AI 知识教练",
+  "description": "人生知识库：一个长期理解你、检验你是否真正掌握、并主动发现认知缺口的 AI 知识教练",
   "workspaces": [
     "apps/*",
-    "backend",
-    "packages/*"
+    "backend"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
