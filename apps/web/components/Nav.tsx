@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import Wordmark from './Wordmark'
 
 const links = [
   { href: '/', label: '首页' },
@@ -50,8 +51,8 @@ export default function Nav() {
     <>
       <header className="sticky top-0 z-30 border-b border-ink/8 bg-canvas/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-5 py-3">
-          <Link href="/" className="h-serif text-[16px] font-semibold tracking-tight">
-            人生知识库
+          <Link href="/" aria-label="人生知识库 首页">
+            <Wordmark />
           </Link>
           <div className="flex items-center gap-1">
             <nav className="hidden items-center gap-1 overflow-x-auto sm:flex">
