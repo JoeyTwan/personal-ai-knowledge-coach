@@ -112,9 +112,32 @@ export interface ListKnowledgeFilters {
   type?: string
 }
 
+// 收集某分类及其所有子孙分类的 id（点大标题时展示全部下级知识）
+async function collectCategoryIds(rootId: string): Promise<string[]> {
+  const all = await prisma.category.findMany({ select: { id: true, parentId: true } })
+  const childrenOf = new Map<string, string[]>()
+  for (const c of all) {
+    if (!c.parentId) continue
+    const list = childrenOf.get(c.parentId) ?? []
+    list.push(c.id)
+    childrenOf.set(c.parentId, list)
+  }
+  const ids: string[] = []
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    ids.push(id)
+    for (const child of childrenOf.get(id) ?? []) stack.push(child)
+  }
+  return ids
+}
+
 export async function listKnowledge(userId: string, filters: ListKnowledgeFilters = {}) {
   const where: Record<string, unknown> = { userId, status: filters.status ?? 'active' }
-  if (filters.categoryId) where.categoryId = filters.categoryId
+  if (filters.categoryId) {
+    // 包含该分类下所有子孙分类的知识（点击父分类标题能看到下级全部内容）
+    where.categoryId = { in: await collectCategoryIds(filters.categoryId) }
+  }
   if (filters.type) where.type = filters.type
   if (filters.search) {
     const tokens = tokenize(filters.search)
