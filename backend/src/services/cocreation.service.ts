@@ -195,6 +195,12 @@ async function evolveKnowledge(
   return updated
 }
 
+// 分类兜底：AI 分类失败时按知识类型落到「工作」或「思考」，保证每条知识都有分类
+function fallbackCategoryPath(type?: string): string[] {
+  const workTypes = ['工作信息', '公司信息', '人物信息', '产品信息', '经验', '方法', '技能', '决策']
+  return workTypes.includes(type ?? '') ? ['工作'] : ['思考']
+}
+
 export async function confirmKnowledge(userId: string, sessionId: string | null, input: ConfirmInput) {
   const title = input.draft.title ?? '未命名知识'
   const coreConclusion = input.draft.coreConclusion ?? input.draft.title ?? ''
@@ -212,8 +218,12 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
       if (cls.categoryPath && cls.categoryPath.length > 0) categoryPath = cls.categoryPath
       if (cls.tags && cls.tags.length > 0) tags = Array.from(new Set([...tags, ...cls.tags]))
     } catch (e) {
-      console.error('[自动分类] 失败，跳过分类', e)
+      console.error('[自动分类] 失败，改用类型兜底', e)
     }
+  }
+  // 兜底：分类仍为空时按类型落到「工作」或「思考」，确保不会出现没有分类的知识
+  if (!categoryPath || categoryPath.length === 0) {
+    categoryPath = fallbackCategoryPath(input.draft.type)
   }
 
   // P0-4 修复：演化检测 —— 判断是否是对已有知识的更新/增强

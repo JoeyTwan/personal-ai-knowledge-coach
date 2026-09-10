@@ -4,9 +4,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { apiGet, apiPost, apiDelete } from '@/lib/api'
 
-// 与后端约定的虚拟分类 id：收纳没有归类的知识
-const UNCATEGORIZED = '__uncategorized__'
-
 interface CategoryNode {
   id: string
   name: string
@@ -330,7 +327,6 @@ function CategoryBranch({
   const [open, setOpen] = useState(true)
   const hasChildren = node.children.length > 0
   const isActive = active === node.id
-  const isUncategorized = node.id === UNCATEGORIZED
 
   return (
     <div>
@@ -367,19 +363,17 @@ function CategoryBranch({
           <span className="truncate">{node.name}</span>
           <span className="ml-2 shrink-0 text-[11px] opacity-60">{node.count}</span>
         </button>
-        {!isUncategorized && (
-          <button
-            onClick={() => onDelete(node)}
-            className="mr-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 transition group-hover/cat:opacity-100 hover:bg-danger/15 hover:text-danger focus:opacity-100"
-            aria-label={`删除分类「${node.name}」`}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 6h18" />
-              <path d="M8 6V4h8v2" />
-              <path d="M19 6l-1 14H6L5 6" />
-            </svg>
-          </button>
-        )}
+        <button
+          onClick={() => onDelete(node)}
+          className="mr-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 transition group-hover/cat:opacity-100 hover:bg-danger/15 hover:text-danger focus:opacity-100"
+          aria-label={`删除分类「${node.name}」`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+          </svg>
+        </button>
       </div>
       {hasChildren &&
         open &&

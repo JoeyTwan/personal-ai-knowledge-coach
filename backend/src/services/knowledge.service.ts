@@ -105,9 +105,6 @@ export async function createKnowledge(userId: string, input: CreateKnowledgeInpu
   return knowledge
 }
 
-// 虚拟分类 id：把没有归类的知识兜在一起，保证目录能覆盖全部知识
-export const UNCATEGORIZED_ID = '__uncategorized__'
-
 export interface ListKnowledgeFilters {
   search?: string
   categoryId?: string
@@ -137,10 +134,7 @@ async function collectCategoryIds(rootId: string): Promise<string[]> {
 
 export async function listKnowledge(userId: string, filters: ListKnowledgeFilters = {}) {
   const where: Record<string, unknown> = { userId, status: filters.status ?? 'active' }
-  if (filters.categoryId === UNCATEGORIZED_ID) {
-    // 未分类：收纳所有没有归类的知识
-    where.categoryId = null
-  } else if (filters.categoryId) {
+  if (filters.categoryId) {
     // 包含该分类下所有子孙分类的知识（点击父分类标题能看到下级全部内容）
     where.categoryId = { in: await collectCategoryIds(filters.categoryId) }
   }
@@ -356,14 +350,5 @@ export async function listCategories(userId: string): Promise<CategoryNode[]> {
     return total
   }
   roots.forEach(accumulate)
-
-  // 未分类节点：把没有归类的知识兜住，保证目录数字与「全部知识」一致
-  const uncategorized = await prisma.knowledge.count({
-    where: { userId, status: 'active', categoryId: null },
-  })
-  if (uncategorized > 0) {
-    roots.push({ id: UNCATEGORIZED_ID, name: '未分类', count: uncategorized, children: [] })
-  }
-
   return roots
 }
