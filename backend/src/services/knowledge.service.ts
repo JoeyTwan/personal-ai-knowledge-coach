@@ -105,6 +105,9 @@ export async function createKnowledge(userId: string, input: CreateKnowledgeInpu
   return knowledge
 }
 
+// 虚拟分类 id：把没有归类的知识兜在一起，保证目录能覆盖全部知识
+export const UNCATEGORIZED_ID = '__uncategorized__'
+
 export interface ListKnowledgeFilters {
   search?: string
   categoryId?: string
@@ -134,7 +137,10 @@ async function collectCategoryIds(rootId: string): Promise<string[]> {
 
 export async function listKnowledge(userId: string, filters: ListKnowledgeFilters = {}) {
   const where: Record<string, unknown> = { userId, status: filters.status ?? 'active' }
-  if (filters.categoryId) {
+  if (filters.categoryId === UNCATEGORIZED_ID) {
+    // 未分类：收纳所有没有归类的知识
+    where.categoryId = null
+  } else if (filters.categoryId) {
     // 包含该分类下所有子孙分类的知识（点击父分类标题能看到下级全部内容）
     where.categoryId = { in: await collectCategoryIds(filters.categoryId) }
   }
@@ -251,7 +257,66 @@ export async function setKnowledgeStatus(userId: string, id: string, status: str
 export async function deleteKnowledge(userId: string, id: string) {
   const existing = await prisma.knowledge.findFirst({ where: { id, userId } })
   if (!existing) return null
-  return prisma.knowledge.delete({ where: { id } })
+  // 先删知识（级联清理来源/版本/掌握状态/关系），再清理引用它的知识断层
+  await prisma.$transaction([
+    prisma.knowledge.delete({ where: { id } }),
+    prisma.knowledgeGap.deleteMany({
+      where: { userId, OR: [{ fromKnowledgeId: id }, { toKnowledgeId: id }] },
+    }),
+  ])
+  return existing
+}
+
+// 批量删除（多选删除）
+export async function deleteKnowledgeBatch(userId: string, ids: string[]) {
+  if (!ids || ids.length === 0) return { count: 0 }
+  const owned = await prisma.knowledge.findMany({
+    where: { id: { in: ids }, userId },
+    select: { id: true },
+  })
+  const ownedIds = owned.map((k) => k.id)
+  if (ownedIds.length === 0) return { count: 0 }
+  await prisma.$transaction([
+    prisma.knowledge.deleteMany({ where: { id: { in: ownedIds }, userId } }),
+    prisma.knowledgeGap.deleteMany({
+      where: {
+        userId,
+        OR: [{ fromKnowledgeId: { in: ownedIds } }, { toKnowledgeId: { in: ownedIds } }],
+      },
+    }),
+  ])
+  return { count: ownedIds.length }
+}
+
+// 删除分类：连同其下所有子孙分类的知识一起永久删除
+export async function deleteCategory(userId: string, categoryId: string) {
+  const cat = await prisma.category.findUnique({ where: { id: categoryId } })
+  if (!cat) return null
+
+  const ids = await collectCategoryIds(categoryId)
+  const knowledges = await prisma.knowledge.findMany({
+    where: { userId, categoryId: { in: ids } },
+    select: { id: true },
+  })
+  const knowledgeIds = knowledges.map((k) => k.id)
+
+  await prisma.$transaction([
+    // 1. 删掉该分类及子孙分类下的全部知识（关联数据由外键级联清理）
+    prisma.knowledge.deleteMany({ where: { id: { in: knowledgeIds } } }),
+    // 2. 清理引用这些知识的知识断层
+    prisma.knowledgeGap.deleteMany({
+      where: {
+        userId,
+        OR: [{ fromKnowledgeId: { in: knowledgeIds } }, { toKnowledgeId: { in: knowledgeIds } }],
+      },
+    }),
+    // 3. 解除父子引用，避免批量删除分类时撞上自引用约束
+    prisma.category.updateMany({ where: { parentId: { in: ids } }, data: { parentId: null } }),
+    // 4. 删掉该分类及其全部子孙分类
+    prisma.category.deleteMany({ where: { id: { in: ids } } }),
+  ])
+
+  return { deletedKnowledges: knowledgeIds.length, deletedCategories: ids.length }
 }
 
 export interface CategoryNode {
@@ -291,5 +356,14 @@ export async function listCategories(userId: string): Promise<CategoryNode[]> {
     return total
   }
   roots.forEach(accumulate)
+
+  // 未分类节点：把没有归类的知识兜住，保证目录数字与「全部知识」一致
+  const uncategorized = await prisma.knowledge.count({
+    where: { userId, status: 'active', categoryId: null },
+  })
+  if (uncategorized > 0) {
+    roots.push({ id: UNCATEGORIZED_ID, name: '未分类', count: uncategorized, children: [] })
+  }
+
   return roots
 }
