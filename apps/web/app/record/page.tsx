@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiPost } from '@/lib/api'
 import Markdown from '@/components/Markdown'
 import AutoTextarea from '@/components/AutoTextarea'
+import Composer from '@/components/Composer'
 
 interface Msg {
   role: 'user' | 'assistant'
@@ -387,24 +388,15 @@ export default function RecordPage() {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {/* 输入区 */}
-      <div className="sticky bottom-0 bg-canvas pt-2">
-        <div className="flex items-end gap-2">
-          <AutoTextarea
-            className="input resize-none"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
-              }
-            }}
-            placeholder="说说你学到了什么…"
-          />
-          <button className="btn btn-primary shrink-0" onClick={send} disabled={loading}>
-            发送
-          </button>
-        </div>
+      <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+64px)] z-20 bg-canvas py-2 sm:bottom-0">
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSubmit={send}
+          placeholder="说说你学到了什么…"
+          loading={loading}
+          hint="Enter 发送 · Shift+Enter 换行"
+        />
       </div>
       <div ref={bottomRef} />
     </div>

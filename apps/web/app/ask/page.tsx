@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { apiGet, apiPost, apiDelete } from '@/lib/api'
 import Markdown from '@/components/Markdown'
-import AutoTextarea from '@/components/AutoTextarea'
+import Composer from '@/components/Composer'
 
 interface Related {
   id: string
@@ -279,29 +279,14 @@ export default function AskPage() {
       {/* 输入区 */}
       <div className="mt-4">
         {error && <p className="mb-2 text-sm text-danger">{error}</p>}
-        <div className="flex items-end gap-2 rounded-2xl border border-ink/12 bg-surface p-2">
-          <AutoTextarea
-            className="min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2 text-[15px] text-ink outline-none placeholder:text-faint"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
-              }
-            }}
-            placeholder="问一个和你知识库相关的问题…"
-            maxRows={6}
-          />
-          <button
-            className="btn btn-primary shrink-0 !px-4 !py-2.5"
-            onClick={send}
-            disabled={loading || !input.trim()}
-          >
-            {loading ? '思考中' : '发送'}
-          </button>
-        </div>
-        <p className="mt-2 text-center text-[11px] text-faint">Enter 发送 · Shift+Enter 换行</p>
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSubmit={send}
+          placeholder="问一个和你知识库相关的问题…"
+          loading={loading}
+          hint="Enter 发送 · Shift+Enter 换行"
+        />
       </div>
     </div>
   )
