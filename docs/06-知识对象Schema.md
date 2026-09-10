@@ -26,7 +26,7 @@ interface Knowledge {
 type KnowledgeStatus = 'active' | 'outdated' | 'archived' | 'deleted'
 
 interface KnowledgeSource {
-  type: string          // 抖音/微信/客户交流/书籍/文章/网络/AI讨论/自己总结/项目经验
+  type: string          // 自己思考的 | 听别人说的 | 社交媒体博客等
   detail?: string
   occurredAt?: string   // 来源时间
   note?: string
@@ -43,16 +43,16 @@ interface KnowledgeSource {
 
 ```json
 {
-  "title": "XXX 公司的液冷能力",
-  "coreConclusion": "XXX 公司具备服务器液冷交付能力，已通过实际项目验证。",
-  "detailExplanation": "2026-07 听闻具备能力，2026-08 获得客户反馈，2026-09 项目验证落地。",
-  "type": "公司信息",
+  "title": "检索增强为什么能压制幻觉",
+  "coreConclusion": "把相关资料先检索出来作为作答依据，模型不必依赖参数里的模糊记忆，编造的空间被大幅压缩。",
+  "detailExplanation": "模型本身不区分「记得」和「编得像」，检索增强把事实来源外置，让回答有据可查。",
+  "type": "概念",
   "status": "active",
   "confidence": 0.9,
-  "tags": ["液冷", "XXX公司", "服务器"],
+  "tags": ["检索增强", "幻觉"],
   "sources": [
-    { "type": "客户交流", "occurredAt": "2026-08-15" },
-    { "type": "项目经验", "occurredAt": "2026-09-01" }
+    { "type": "社交媒体博客等", "occurredAt": "2026-08-15" },
+    { "type": "自己思考的", "occurredAt": "2026-09-01" }
   ]
 }
 ```
@@ -62,20 +62,20 @@ interface KnowledgeSource {
 ```markdown
 ---
 id: xxx
-title: XXX 公司的液冷能力
-type: 公司信息
-tags: [液冷, XXX公司, 服务器]
+title: 检索增强为什么能压制幻觉
+type: 概念
+tags: [检索增强, 幻觉]
 status: active
 ---
 
-# XXX 公司的液冷能力
+# 检索增强为什么能压制幻觉
 
 核心结论...
 详细解释...
 
 ## 相关知识
-- [[Attention]]
-- [[液冷]]
+- [[注意力机制]]
+- [[上下文窗口直接决定调用成本]]
 ```
 
 知识之间用 wikilink `[[标题]]` 表达关系，兼容 Obsidian。

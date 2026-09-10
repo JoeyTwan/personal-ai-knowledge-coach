@@ -32,7 +32,7 @@ const nextId = () => `m${Date.now().toString(36)}${(uid++).toString(36)}`
 
 const SAMPLES = [
   '帮我梳理一下最近记录的 Transformer 相关知识',
-  '客户需要一个 AI 服务器整机集成方案，我以前记录过合适的公司吗？',
+  '大模型为什么会产生幻觉？',
 ]
 
 function formatTime(d: string) {
