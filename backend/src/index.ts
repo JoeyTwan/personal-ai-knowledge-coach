@@ -5,7 +5,7 @@ import { startScheduler } from './services/scheduler.service'
 
 const app = buildServer()
 
-app.listen({ port: env.backendPort, host: '0.0.0.0' }, async (err) => {
+app.listen({ port: env.backendPort, host: env.backendHost }, async (err) => {
   if (err) {
     app.log.error(err)
     process.exit(1)

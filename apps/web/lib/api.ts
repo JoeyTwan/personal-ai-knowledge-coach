@@ -1,4 +1,6 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8787'
+// 默认走同源相对路径，由 next.config 的 rewrites 转发到后端
+// 这样本地开发、服务器部署、手机访问都只有一套配置
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? ''
 
 export async function api<T = any>(path: string, options?: RequestInit): Promise<T> {
   // 无 body 时不带 Content-Type，否则后端会按空 JSON 解析并报错

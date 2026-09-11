@@ -11,6 +11,8 @@ export const env = {
   databaseUrl: process.env.DATABASE_URL ?? 'file:./dev.db',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   backendPort: Number(process.env.BACKEND_PORT ?? 8787),
+  // 生产部署时设为 127.0.0.1，只允许前端转发访问，不对公网暴露
+  backendHost: process.env.BACKEND_HOST ?? '0.0.0.0',
 }
 
 export const hasAIKey = () => env.deepseekApiKey.length > 0
