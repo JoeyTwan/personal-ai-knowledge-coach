@@ -11,6 +11,9 @@ type Props = {
   loading?: boolean
   maxRows?: number
   hint?: string
+  // 传入后左侧出现上传入口（文件或拍照）
+  onAttach?: () => void
+  attachDisabled?: boolean
 }
 
 // 全站统一的对话输入条：胶囊外形 + 圆形上箭头按钮
@@ -23,6 +26,8 @@ export default function Composer({
   loading = false,
   maxRows = 6,
   hint,
+  onAttach,
+  attachDisabled = false,
 }: Props) {
   const canSend = value.trim().length > 0 && !loading
 
@@ -36,6 +41,18 @@ export default function Composer({
   return (
     <div>
       <div className="composer">
+        {onAttach && (
+          <button
+            type="button"
+            className="composer-attach"
+            onClick={onAttach}
+            disabled={attachDisabled}
+            aria-label="上传材料"
+            title="上传材料"
+          >
+            <PlusIcon />
+          </button>
+        )}
         <AutoTextarea
           className="composer-input"
           value={value}
@@ -75,6 +92,24 @@ function ArrowUp() {
     >
       <path d="M12 19V5" />
       <path d="M5.5 11.5 12 5l6.5 6.5" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="19"
+      height="19"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5.5v13M5.5 12h13" />
     </svg>
   )
 }

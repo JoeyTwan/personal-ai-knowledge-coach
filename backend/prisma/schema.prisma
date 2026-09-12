@@ -27,6 +27,47 @@ model User {
   gaps            KnowledgeGap[]
   relations       KnowledgeRelation[]
   insights        AiInsight[]
+  materials       Material[]
+}
+
+// 一份导入的材料（笔记文档或照片）。原文不保存，只留拆解后的知识清单。
+model Material {
+  id        String   @id @default(cuid())
+  title     String // 材料名，取自文件名或 AI 概括
+  kind      String // image | pdf | docx | text
+  status    String   @default("active") // active | done | dismissed
+  itemCount Int      @default(0)
+  // 材料偏大时，AI 只挑最重要的若干条，这里是没被展开的条数
+  overflow  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  MaterialItem[]
+
+  @@index([userId, status])
+}
+
+// 材料拆出的一条知识要点。它替代原文承载信息量，脱离原文也能继续讨论。
+model MaterialItem {
+  id       String  @id @default(cuid())
+  order    Int
+  title    String
+  gist     String // 这一条讲了什么，自带信息量
+  keyFacts String? // JSON 数组，关键事实与数字
+  status   String  @default("todo") // todo | discussing | passed | review
+  attempts Int     @default(0) // 已经答了几轮
+  sessionId String? // 讨论会话
+  knowledgeId String? // 过关后收录的知识
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([materialId, order])
 }
 
 model Knowledge {

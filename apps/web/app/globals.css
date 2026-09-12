@@ -156,6 +156,26 @@ select:focus-visible {
 .composer-input::placeholder {
   color: rgb(var(--text3));
 }
+/* 上传入口：与发送按钮同尺寸，但更安静 */
+.composer-attach {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  color: rgb(var(--text2));
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+.composer-attach:hover:not(:disabled) {
+  background: rgb(var(--text) / 0.07);
+  color: rgb(var(--text));
+}
+.composer-attach:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .composer-send {
   flex: none;
   display: inline-flex;

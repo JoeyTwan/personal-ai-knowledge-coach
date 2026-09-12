@@ -7,7 +7,8 @@ loadEnv({ path: path.resolve(__dirname, '../../../.env') })
 export const env = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? '',
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
-  deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+  // deepseek-flash 支持图片输入，材料里可以直接丢截图进来
+  deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-flash',
   databaseUrl: process.env.DATABASE_URL ?? 'file:./dev.db',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   backendPort: Number(process.env.BACKEND_PORT ?? 8787),

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { apiPost } from '@/lib/api'
+import Link from 'next/link'
+import { apiGet, apiPost, apiUpload } from '@/lib/api'
 import Markdown from '@/components/Markdown'
 import AutoTextarea from '@/components/AutoTextarea'
 import Composer from '@/components/Composer'
@@ -38,6 +39,22 @@ interface DiscussRes {
 // 来源固定三类
 const SOURCE_TYPES = ['自己思考的', '听别人说的', '社交媒体/博客等']
 
+// 还没走完的材料
+interface PendingMaterial {
+  id: string
+  title: string
+  kind: string
+  total: number
+  passed: number
+}
+
+const KIND_LABEL: Record<string, string> = {
+  image: '图片',
+  pdf: 'PDF',
+  docx: '文档',
+  text: '文本',
+}
+
 function cleanReply(reply: string) {
   return reply
     .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
@@ -58,8 +75,34 @@ export default function RecordPage() {
   const [questions, setQuestions] = useState<Question[]>([])
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [sourceType, setSourceType] = useState('自己思考的')
+  const [uploading, setUploading] = useState(false)
+  const [pending, setPending] = useState<PendingMaterial[]>([])
 
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // 未走完的材料，进来就放在最上面
+  useEffect(() => {
+    apiGet<PendingMaterial[]>('/api/material/list')
+      .then(setPending)
+      .catch(() => undefined)
+  }, [])
+
+  // 上传一份材料：读懂之后拆成清单，然后跳过去逐条过
+  async function uploadFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || uploading) return
+    setUploading(true)
+    setError('')
+    try {
+      const material = await apiUpload<{ id: string }>('/api/material/import', file)
+      router.push(`/material/${material.id}`)
+    } catch (err: any) {
+      setError(err.message)
+      setUploading(false)
+    }
+  }
 
   // 微信式：新消息自动滚到底部
   useEffect(() => {
@@ -162,9 +205,31 @@ export default function RecordPage() {
       <header>
         <h1 className="h-serif text-xl font-semibold">记录新知识</h1>
         <p className="mt-1 text-sm text-muted">
-          用一句话告诉我你最近学到了什么，我会和你讨论，直到形成共识。
+          说一段话，或者丢一份笔记、一张截图进来。我会和你讨论，直到你把它讲清楚。
         </p>
       </header>
+
+      {/* 没走完的材料 */}
+      {pending.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[12px] text-muted">还有 {pending.length} 份材料没走完</p>
+          {pending.map((m) => (
+            <Link
+              key={m.id}
+              href={`/material/${m.id}`}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-gold/25 bg-gold/6 px-4 py-3 transition hover:border-gold/45"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-[15px] font-medium">{m.title}</span>
+                <span className="mt-0.5 block text-[12px] text-muted">
+                  {KIND_LABEL[m.kind] ?? '材料'} · 已收录 {m.passed} / {m.total} 条
+                </span>
+              </span>
+              <span className="shrink-0 text-[13px] text-gold">接着过</span>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* 对话区 */}
       <div className="space-y-4">
@@ -389,13 +454,27 @@ export default function RecordPage() {
 
       {/* 输入区 */}
       <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+64px)] z-20 bg-canvas py-2 sm:bottom-0">
+        {uploading && (
+          <p className="mb-2 text-center text-[12px] text-gold">
+            正在读这份材料，读完会列出里面的知识点…
+          </p>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,.pdf,.docx,.txt,.md"
+          className="hidden"
+          onChange={uploadFile}
+        />
         <Composer
           value={input}
           onChange={setInput}
           onSubmit={send}
           placeholder="说说你学到了什么…"
           loading={loading}
-          hint="Enter 发送 · Shift+Enter 换行"
+          onAttach={() => fileRef.current?.click()}
+          attachDisabled={uploading || loading}
+          hint="点左边的加号可以传笔记或截图"
         />
       </div>
       <div ref={bottomRef} />
