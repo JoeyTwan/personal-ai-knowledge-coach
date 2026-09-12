@@ -1,12 +1,28 @@
 import { FastifyInstance } from 'fastify'
 import { getDefaultUserId } from '../services/user.service'
 import { discuss, confirmKnowledge, summarizeConsensus } from '../services/cocreation.service'
+import { describeAnswers, normalizeCards, sanitizeAnswers } from '../ai/cards'
 
 export async function cocreationRoutes(app: FastifyInstance) {
-  app.post('/api/cocreation/discuss', async (req) => {
+  // 两种提交方式：直接说话（message），或者答完卡片（answers + cards）
+  app.post('/api/cocreation/discuss', async (req, reply) => {
     const userId = await getDefaultUserId()
-    const { sessionId, message } = req.body as { sessionId?: string; message: string }
-    return discuss(userId, sessionId ?? null, message)
+    const { sessionId, message, answers, cards } = req.body as {
+      sessionId?: string
+      message?: string
+      answers?: unknown
+      cards?: unknown
+    }
+
+    const list = sanitizeAnswers(answers)
+    const cardList = normalizeCards(cards)
+    const composed =
+      list.length > 0 && cardList.length > 0
+        ? describeAnswers(cardList, list)
+        : (message ?? '').trim()
+
+    if (!composed) return reply.code(400).send({ error: '还没作答' })
+    return discuss(userId, sessionId ?? null, composed)
   })
 
   // P2-1：AI 未自动出共识标记时，用户主动触发总结

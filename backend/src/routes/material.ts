@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { getDefaultUserId } from '../services/user.service'
+import { sanitizeAnswers } from '../ai/cards'
 import {
   MaterialError,
   importMaterial,
@@ -8,6 +9,8 @@ import {
   getMaterial,
   startItem,
   answerItem,
+  addExample,
+  getItemThread,
   completeItem,
   skipItem,
   dismissMaterial,
@@ -62,7 +65,7 @@ export async function materialRoutes(app: FastifyInstance) {
     return material
   })
 
-  // 开始过一条：AI 先讲，再问
+  // 开始过一条：AI 先讲，再给第一批卡
   app.post('/api/material/:id/items/:itemId/start', async (req, reply) => {
     try {
       const userId = await getDefaultUserId()
@@ -73,14 +76,40 @@ export async function materialRoutes(app: FastifyInstance) {
     }
   })
 
-  // 回答一轮，拿判定
+  // 刷新后接着答：把对话和还没答的卡取回来
+  app.get('/api/material/items/:itemId/thread', async (req, reply) => {
+    try {
+      const userId = await getDefaultUserId()
+      const { itemId } = req.params as { itemId: string }
+      return await getItemThread(userId, itemId)
+    } catch (e) {
+      return fail(reply, e)
+    }
+  })
+
+  // 交一批作答，拿判定和下一步的卡
   app.post('/api/material/items/:itemId/answer', async (req, reply) => {
     try {
       const userId = await getDefaultUserId()
       const { itemId } = req.params as { itemId: string }
-      const { answer } = req.body as { answer?: string }
-      if (!answer || !answer.trim()) return reply.code(400).send({ error: '还没写回答' })
-      return await answerItem(userId, itemId, answer.trim())
+      const { answers } = req.body as { answers?: unknown }
+      const list = sanitizeAnswers(answers)
+      const filled = list.some((a) => a.choice || a.text)
+      if (!filled) return reply.code(400).send({ error: '还没作答' })
+      return await answerItem(userId, itemId, list)
+    } catch (e) {
+      return fail(reply, e)
+    }
+  })
+
+  // 补一个自己的例子（可选，不影响过关）
+  app.post('/api/material/items/:itemId/example', async (req, reply) => {
+    try {
+      const userId = await getDefaultUserId()
+      const { itemId } = req.params as { itemId: string }
+      const { text } = req.body as { text?: string }
+      if (!text || !text.trim()) return reply.code(400).send({ error: '还没写例子' })
+      return await addExample(userId, itemId, text.trim())
     } catch (e) {
       return fail(reply, e)
     }

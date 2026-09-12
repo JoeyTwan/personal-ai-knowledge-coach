@@ -57,6 +57,26 @@ export async function chat(messages: ChatMessage[], options?: ChatOptions): Prom
 }
 
 export async function chatJSON<T>(messages: ChatMessage[], options?: ChatOptions): Promise<T> {
-  const content = await chat(messages, { temperature: options?.temperature ?? 0.3, maxTokens: options?.maxTokens })
-  return extractJSON<T>(content)
+  const first = await chat(messages, {
+    temperature: options?.temperature ?? 0.3,
+    maxTokens: options?.maxTokens,
+  })
+  try {
+    return extractJSON<T>(first)
+  } catch {
+    // 模型偶尔会输出空内容或被截断。原样记下来，方便判断是没输出还是输出坏了
+    console.error('[AI] JSON 解析失败，原始输出：', first.slice(0, 800) || '（空回复）')
+  }
+
+  // 给一次补救机会：明确要求只输出 JSON，不再带任何解释文字
+  const second = await chat(
+    [...messages, { role: 'assistant', content: first }, { role: 'user', content: '（只输出合法 JSON 本身，不要任何解释、不要代码块围栏。）' }],
+    { temperature: 0.2, maxTokens: options?.maxTokens },
+  )
+  try {
+    return extractJSON<T>(second)
+  } catch {
+    console.error('[AI] JSON 解析二次失败，原始输出：', second.slice(0, 800) || '（空回复）')
+    throw new Error('这次没能整理出结构，稍后再试一次')
+  }
 }

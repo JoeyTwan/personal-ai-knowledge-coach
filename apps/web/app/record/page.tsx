@@ -7,15 +7,11 @@ import { apiGet, apiPost, apiUpload } from '@/lib/api'
 import Markdown from '@/components/Markdown'
 import AutoTextarea from '@/components/AutoTextarea'
 import Composer from '@/components/Composer'
+import AskCards, { type AskCard, type CardAnswer, type GroupState } from '@/components/AskCards'
 
 interface Msg {
   role: 'user' | 'assistant'
   content: string
-}
-
-interface Question {
-  id: string
-  text: string
 }
 
 interface Draft {
@@ -31,7 +27,7 @@ interface Draft {
 interface DiscussRes {
   sessionId: string
   reply: string
-  questions?: Question[]
+  cards?: AskCard[]
   consensusReached: boolean
   draft: Draft | null
 }
@@ -55,13 +51,7 @@ const KIND_LABEL: Record<string, string> = {
   text: '文本',
 }
 
-function cleanReply(reply: string) {
-  return reply
-    .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
-    .replace(/<QUESTIONS>[\s\S]*?<\/QUESTIONS>/g, '')
-    .trim()
-}
-
+// 追问卡片兜底：超过两张也不是问题，但仍只答一张一件事
 export default function RecordPage() {
   const router = useRouter()
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -72,8 +62,9 @@ export default function RecordPage() {
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState('')
   const [summarizing, setSummarizing] = useState(false)
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [cards, setCards] = useState<AskCard[]>([])
+  const [cardAnswers, setCardAnswers] = useState<Record<string, CardAnswer>>({})
+  const [cardState, setCardState] = useState<GroupState>('answering')
   const [sourceType, setSourceType] = useState('自己思考的')
   const [uploading, setUploading] = useState(false)
   const [pending, setPending] = useState<PendingMaterial[]>([])
@@ -107,17 +98,18 @@ export default function RecordPage() {
   // 微信式：新消息自动滚到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading, questions, draft])
+  }, [messages, loading, cards, draft])
 
   function applyReply(res: DiscussRes) {
     setSessionId(res.sessionId)
-    setMessages((m) => [...m, { role: 'assistant', content: cleanReply(res.reply) }])
+    setMessages((m) => [...m, { role: 'assistant', content: res.reply }])
     if (res.consensusReached) {
       setDraft(res.draft)
-      setQuestions([])
+      setCards([])
     } else {
-      setQuestions(res.questions ?? [])
-      if (res.questions?.length) setAnswers({})
+      setCards(res.cards ?? [])
+      setCardAnswers({})
+      setCardState('answering')
     }
   }
 
@@ -138,25 +130,25 @@ export default function RecordPage() {
     }
   }
 
-  // 表单式追问：把每个追问的答案打包成一条消息提交
-  async function submitAnswers() {
-    if (loading) return
-    const filled = questions
-      .map((q) => `- ${q.text}\n  我的回答：${answers[q.id]?.trim() || '（暂未回答）'}`)
-      .join('\n')
-    setMessages((m) => [...m, { role: 'user', content: `关于你的追问，我的回答：\n${filled}` }])
-    setQuestions([])
-    setAnswers({})
+  // 交一组卡片作答：点选和打字打包成一条消息提交
+  async function submitCards() {
+    if (loading || cards.length === 0) return
+    const payload = Object.values(cardAnswers).filter((a) => a.choice || (a.text ?? '').trim())
+    if (payload.length === 0) return
+    setCardState('grading')
     setLoading(true)
     setError('')
     try {
       const res = await apiPost<DiscussRes>('/api/cocreation/discuss', {
         sessionId,
-        message: `关于你的追问，我的回答：\n${filled}`,
+        answers: payload,
+        cards,
       })
+      setCards([])
       applyReply(res)
     } catch (e: any) {
       setError(e.message)
+      setCardState('answering')
     } finally {
       setLoading(false)
     }
@@ -256,27 +248,17 @@ export default function RecordPage() {
         {loading && <div className="text-sm text-muted">思考中…</div>}
       </div>
 
-      {/* 结构化追问表单 */}
-      {questions.length > 0 && !draft && (
-        <div className="card border-gold/40">
-          <p className="text-[13px] font-medium text-gold">我还想了解几点，请在下面回答</p>
-          <div className="mt-3 space-y-4">
-            {questions.map((q) => (
-              <div key={q.id}>
-                <p className="text-[14px] font-medium">{q.text}</p>
-                <AutoTextarea
-                  className="input mt-2"
-                  value={answers[q.id] ?? ''}
-                  onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
-                  placeholder="在这里输入你的回答…"
-                />
-              </div>
-            ))}
-          </div>
-          <button className="btn btn-primary mt-4" onClick={submitAnswers} disabled={loading}>
-            提交答案
-          </button>
-        </div>
+      {/* 追问卡片：点一下就答完，不用凑一小段话 */}
+      {cards.length > 0 && !draft && (
+        <AskCards
+          cards={cards}
+          state={cardState}
+          answers={cardAnswers}
+          onChange={(cardId, patch) =>
+            setCardAnswers((a) => ({ ...a, [cardId]: { ...a[cardId], ...patch, cardId } }))
+          }
+          onSubmit={submitCards}
+        />
       )}
 
       {/* 共识草稿：完整展示待收录知识 */}
@@ -439,7 +421,7 @@ export default function RecordPage() {
       )}
 
       {/* 兜底：AI 未出草稿时提供手动总结入口 */}
-      {!draft && questions.length === 0 && messages.length > 0 && !loading && (
+      {!draft && cards.length === 0 && messages.length > 0 && !loading && (
         <div className="card border-gold/30">
           <p className="text-[13px] text-muted">
             如果教练还没有给出结论，你可以直接让教练基于上面的讨论总结出一条知识草稿。

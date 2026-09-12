@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma'
 import { chat, chatJSON } from '../ai/client'
 import { cocreateSystem, classifySystem, detectEvolutionSystem, extractKnowledgeSystem } from '../ai/prompts'
+import { parseAsk, stripAsk } from '../ai/cards'
 import { getProfileText } from './user.service'
 import { createKnowledge } from './knowledge.service'
 import { generateBullets } from './bullets.service'
@@ -34,22 +35,7 @@ function parseConsensus(reply: string): { reached: boolean; draft: KnowledgeDraf
   }
 }
 
-// 从 AI 回复中解析结构化追问列表（表单式追问）
-function parseQuestions(reply: string): { id: string; text: string }[] {
-  const m = reply.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/)
-  if (!m) return []
-  try {
-    const arr = JSON.parse(m[1])
-    if (Array.isArray(arr)) {
-      return arr
-        .filter((q) => q && typeof q.text === 'string' && q.text.trim())
-        .map((q, i) => ({ id: q.id ?? `q${i + 1}`, text: q.text.trim() }))
-    }
-    return []
-  } catch {
-    return []
-  }
-}
+// 从 AI 回复中解析追问卡片（parseAsk 在 ai/cards.ts，与材料过关共用同一套）
 
 export async function discuss(userId: string, sessionId: string | null, userMessage: string) {
   let session = sessionId
@@ -99,8 +85,8 @@ export async function discuss(userId: string, sessionId: string | null, userMess
 
   return {
     sessionId: session.id,
-    reply,
-    questions: parseQuestions(reply),
+    reply: stripAsk(reply).replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '').trim(),
+    cards: parseAsk(reply),
     consensusReached: consensus.reached,
     draft: consensus.draft,
   }
@@ -123,9 +109,9 @@ export async function summarizeConsensus(userId: string, sessionId: string) {
       content: `以下是用户与知识教练的讨论记录，请把它们整理成一条结构化知识（若信息不足以形成结论，用已有信息合理归纳，不要在字段里留「待补充」）。\n\n${history
         .map(
           (m) =>
-            `${m.role === 'user' ? '用户' : '教练'}：${m.content
-              .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
-              .trim()}`,
+            `${m.role === 'user' ? '用户' : '教练'}：${stripAsk(
+              m.content.replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, ''),
+            ).trim()}`,
         )
         .join('\n')}`,
     },

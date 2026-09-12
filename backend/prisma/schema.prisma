@@ -57,9 +57,12 @@ model MaterialItem {
   gist     String // 这一条讲了什么，自带信息量
   keyFacts String? // JSON 数组，关键事实与数字
   status   String  @default("todo") // todo | discussing | passed | review
-  attempts Int     @default(0) // 已经答了几轮
+  attempts Int     @default(0) // 答错的次数（点两下不算，只有真答错才计数）
   sessionId String? // 讨论会话
   knowledgeId String? // 过关后收录的知识
+  // 逐条过关的步进状态，JSON：{ step, stage, cards, wrong, log }
+  // 存下来是为了刷新页面能接着答，也让「答错退一级」由服务端说了算，不靠模型自觉
+  askState String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
