@@ -24,6 +24,9 @@ export async function searchKnowledge(userId: string, question: string) {
           { briefExplanation: { contains: t } },
           { detailExplanation: { contains: t } },
           { example: { contains: t } },
+          // 要点清单是原料知识的完整落地，检索必须带上它，
+          // 否则收录时补上的细节在问答里仍然搜不到
+          { keyPoints: { contains: t } },
           { tags: { some: { name: { contains: t } } } },
           { category: { name: { contains: t } } },
         ],
@@ -38,8 +41,10 @@ export async function searchKnowledge(userId: string, question: string) {
   const scored = candidates
     .map((k) => {
       const tagNames = k.tags.map((t) => t.name).join(' ')
-      const haystack = `${k.title} ${k.coreConclusion} ${k.briefExplanation ?? ''} ${k.detailExplanation ?? ''} ${k.example ?? ''} ${tagNames} ${k.category?.name ?? ''}`
-      const hitCount = tokens.filter((t) => haystack.includes(t)).length
+      // 一律转小写再比：技术词大小写混着写是常态（自己敲 nvme，笔记里写 NVMe），
+      // 之前这里大小写敏感，小写提问会把明明命中的知识当成零命中丢掉
+      const haystack = `${k.title} ${k.coreConclusion} ${k.briefExplanation ?? ''} ${k.detailExplanation ?? ''} ${k.example ?? ''} ${k.keyPoints ?? ''} ${tagNames} ${k.category?.name ?? ''}`.toLowerCase()
+      const hitCount = tokens.filter((t) => haystack.includes(t.toLowerCase())).length
       return { k, hitCount }
     })
     .filter((s) => s.hitCount > 0)
@@ -97,6 +102,17 @@ async function getBlindSpots(userId: string): Promise<BlindSpots> {
     gaps: gaps.map((g) => (g.reason ? `${g.gapDescription}（${g.reason}）` : g.gapDescription)),
     weakDirections,
     weakKnowledges,
+  }
+}
+
+// 要点清单以 JSON 字符串存在库里，读的时候容错解析
+function parseKeyPoints(raw?: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
   }
 }
 
@@ -161,6 +177,10 @@ export async function ask(
             `核心结论：${k.coreConclusion}`,
           ]
           if (k.detailExplanation) parts.push(`详细解释：${k.detailExplanation}`)
+          // 要点清单里放着最细的事实和对比，回答具体问题全靠它，
+          // 没有这一段，收录时补上的细节在问答里就白存了
+          const kps = parseKeyPoints(k.keyPoints)
+          if (kps.length) parts.push(`要点：\n${kps.map((p) => `- ${p}`).join('\n')}`)
           parts.push(`记录时间：${k.createdAt.toISOString().slice(0, 10)}`)
           const src = k.sources.map((s) => s.type).filter(Boolean)
           if (src.length) parts.push(`来源：${src.join('、')}`)
@@ -181,11 +201,21 @@ ${renderBlindSpots(blindSpots)}
 
   // 带上最近对话历史，形成多轮上下文；最多保留最近 10 条，避免 token 过长
   const recentHistory = history.slice(-10)
-  const answer = await chat([
-    { role: 'system', content: askSystem(profile) },
+  const chatMessages = [
+    { role: 'system' as const, content: askSystem(profile) },
     ...recentHistory.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userPrompt },
-  ])
+    { role: 'user' as const, content: userPrompt },
+  ]
+
+  // 不设输出上限，让服务端给足。三段式回答本来就长，模型又是推理模型，
+  // 预算写小了会出现「正文为空」，用户看到的就是一片空白
+  let answer = ((await chat(chatMessages)) ?? '').trim()
+  if (!answer) {
+    console.warn('[问答] 模型返回空正文，重试一次')
+    answer = ((await chat(chatMessages)) ?? '').trim()
+  }
+  // 兜底：连续两次都空，也要给一句人话，不许把空白丢给用户
+  if (!answer) answer = '这次我没答上来。换个说法再问一次，或者去知识库看看相关的那条。'
 
   const relatedOut = related.map((k) => ({
     id: k.id,

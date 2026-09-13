@@ -9,6 +9,9 @@ export const env = {
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
   // deepseek-flash 支持图片输入，材料里可以直接丢截图进来
   deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-flash',
+  // 可选的输出总闸。想控制花销时在 .env 里设 AI_MAX_TOKENS（比如 8192），
+  // 所有 AI 调用的输出都不会超过它。默认留空，由服务端按任务给足
+  aiMaxTokens: Number(process.env.AI_MAX_TOKENS ?? 0) || undefined,
   databaseUrl: process.env.DATABASE_URL ?? 'file:./dev.db',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   backendPort: Number(process.env.BACKEND_PORT ?? 8787),

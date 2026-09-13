@@ -65,9 +65,7 @@ export async function suggestSplits(userId: string): Promise<SplitSuggestion[]> 
           .join('\n\n'),
       },
     ],
-    // 拆分方案要把每条新知识的正文都写出来，加上模型自己的思考开销，
-    // 4096 只够拆一条，给足余量避免正文被截空
-    { maxTokens: 8192 },
+    // 不设输出上限：拆分方案要把每条新知识的正文都写出来，思考开销又不可控
   )
 
   return raw

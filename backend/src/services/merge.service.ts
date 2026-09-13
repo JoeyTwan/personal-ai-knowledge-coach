@@ -61,7 +61,6 @@ export async function detectDuplicates(userId: string) {
             .join('\n\n'),
       },
     ],
-    { maxTokens: 4096 },
   )
 
   return suggestions.filter((s) => Array.isArray(s.knowledgeIds) && s.knowledgeIds.length >= 2)

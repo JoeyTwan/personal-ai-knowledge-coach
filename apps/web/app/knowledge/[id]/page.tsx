@@ -67,6 +67,15 @@ export default function KnowledgeDetailPage() {
   ]
   const state = k.states?.[0]
 
+  // 要点清单以 JSON 字符串存在库里，读的时候容错
+  let keyPoints: string[] = []
+  try {
+    const parsed = JSON.parse(k.keyPoints ?? '[]')
+    if (Array.isArray(parsed)) keyPoints = parsed.filter((x: unknown) => typeof x === 'string')
+  } catch {
+    keyPoints = []
+  }
+
   const typeLabels: Record<string, string> = {
     related: '相关',
     prerequisite: '前置',
@@ -108,6 +117,24 @@ export default function KnowledgeDetailPage() {
         <section>
           <h2 className="mb-2 text-[15px] font-semibold">详细解释</h2>
           <Markdown content={k.detailExplanation} />
+        </section>
+      )}
+
+      {/* 知识要点：收录时从原料一条条拆出来的最小知识点，用来确认没丢东西 */}
+      {keyPoints.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-[15px] font-semibold">
+            知识要点
+            <span className="ml-2 text-[12px] font-normal text-muted">{keyPoints.length} 条</span>
+          </h2>
+          <ul className="space-y-2">
+            {keyPoints.map((p, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-[14px] leading-relaxed">
+                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-gold" />
+                <span>{p}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

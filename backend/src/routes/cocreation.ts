@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { getDefaultUserId } from '../services/user.service'
-import { discuss, confirmKnowledge, summarizeConsensus } from '../services/cocreation.service'
+import { discuss, confirmKnowledges, summarizeConsensus } from '../services/cocreation.service'
 import { describeAnswers, normalizeCards, sanitizeAnswers } from '../ai/cards'
 
 export async function cocreationRoutes(app: FastifyInstance) {
@@ -38,7 +38,21 @@ export async function cocreationRoutes(app: FastifyInstance) {
   app.post('/api/cocreation/confirm', async (req, reply) => {
     const userId = await getDefaultUserId()
     const body = req.body as any
-    const knowledge = await confirmKnowledge(userId, body.sessionId ?? null, body)
-    return reply.code(201).send(knowledge)
+    // 一份笔记可能拆出多条知识，正常传 drafts；也兼容单条 draft 的老写法
+    const drafts = Array.isArray(body?.drafts)
+      ? body.drafts
+      : body?.draft
+        ? [body.draft]
+        : []
+    if (drafts.length === 0) return reply.code(400).send({ error: '没有要收录的内容' })
+
+    const knowledges = await confirmKnowledges(userId, body.sessionId ?? null, {
+      drafts,
+      categoryPath: body.categoryPath,
+      sourceType: body.sourceType,
+      sourceDetail: body.sourceDetail,
+      learnedVia: body.learnedVia,
+    })
+    return reply.code(201).send({ knowledges, count: knowledges.length })
   })
 }

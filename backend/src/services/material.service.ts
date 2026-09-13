@@ -115,7 +115,7 @@ async function digest(input: {
     ]
   }
 
-  const result = await chatJSON<DigestResult>(messages, { temperature: 0.3, maxTokens: 3000 })
+  const result = await chatJSON<DigestResult>(messages, { temperature: 0.3 })
 
   const raw = Array.isArray(result.items) ? result.items : []
   const items = raw
@@ -310,7 +310,7 @@ async function callCoach(
   messages: ChatMessage[],
   needsCards: boolean,
 ): Promise<{ reply: string; check: CheckResult | null; cards: AskCard[] }> {
-  let reply = await chat(messages, { temperature: 0.5, maxTokens: 1800 })
+  let reply = await chat(messages, { temperature: 0.5 })
   let check = parseCheck(reply)
   let cards = parseAsk(reply, 1)
 
@@ -323,7 +323,7 @@ async function callCoach(
     : '（你上一条回复说还要继续，但没有给出 <ASK> 卡片。请重新输出正文，并补上 <ASK> 卡片。）'
   reply = await chat(
     [...messages, { role: 'assistant', content: reply }, { role: 'user', content: nudge }],
-    { temperature: 0.4, maxTokens: 1800 },
+    { temperature: 0.4 },
   )
   check = parseCheck(reply)
   cards = parseAsk(reply, 1)
@@ -358,7 +358,7 @@ export async function startItem(userId: string, materialId: string, itemId: stri
       { role: 'system', content: system },
       { role: 'user', content: opener },
     ],
-    { temperature: 0.6, maxTokens: 1600 },
+    { temperature: 0.6 },
   )
   const cards = parseAsk(reply, 1)
   if (cards.length === 0) throw new MaterialError('教练这回没出题，稍等一下再试一次')
@@ -606,7 +606,7 @@ export async function chatAboutItem(userId: string, itemId: string, text: string
       })),
       { role: 'user', content: message },
     ],
-    { temperature: 0.5, maxTokens: 1200 },
+    { temperature: 0.5 },
   )
 
   await prisma.conversationSession.update({

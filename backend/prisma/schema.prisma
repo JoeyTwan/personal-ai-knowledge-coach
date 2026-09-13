@@ -86,6 +86,9 @@ model Knowledge {
   isOutdated        Boolean  @default(false)
   // 弹幕要点：由 AI 把一条知识拆成的若干条独立短句，JSON 字符串数组
   bullets           String?
+  // 知识要点清单：收录时从原料逐条拆出的最小知识点，JSON 字符串数组。
+  // 它是「原料里的知识一条都没丢」的凭据，也参与问答检索
+  keyPoints         String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

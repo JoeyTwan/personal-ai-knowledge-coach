@@ -21,6 +21,9 @@ export interface CreateKnowledgeInput {
   confidence?: number
   // 弹幕要点（AI 拆解的短句，用于首页弹幕）
   bullets?: string[]
+  // 知识要点清单：收录时从原料逐条拆出的最小知识点。
+  // 它是「原料里的知识一条都没丢」的凭据，也参与问答检索
+  keyPoints?: string[]
   // 初始掌握度。收录本身就是学习证据，不能从「没学过」起算
   mastery?: MasteryPreset
 }
@@ -92,6 +95,7 @@ export async function createKnowledge(userId: string, input: CreateKnowledgeInpu
       type: input.type ?? '概念',
       confidence: input.confidence ?? null,
       bullets: input.bullets?.length ? JSON.stringify(input.bullets) : null,
+      keyPoints: input.keyPoints?.length ? JSON.stringify(input.keyPoints) : null,
       categoryId: category?.id ?? null,
       userId,
       tags: input.tags?.length

@@ -12,8 +12,8 @@ import AskCards, { type AskCard, type CardAnswer, type GroupState } from '@/comp
 interface Msg {
   role: 'user' | 'assistant'
   content: string
-  // 收录完成时插入的消息带这个字段，渲染成一张可点的卡
-  knowledgeId?: string
+  // 收录完成时插入的消息带这个字段，渲染成几个可点的入口
+  saved?: { id: string; title?: string }[]
 }
 
 interface Draft {
@@ -24,6 +24,15 @@ interface Draft {
   example?: string
   type?: string
   tags?: string[]
+  // 这条知识认领的原料要点，用来核对有没有漏
+  keyPoints?: string[]
+}
+
+// 一次整理的结果：原料的全部要点 + 按主题分好的知识草稿 + 没落地的要点
+interface ExtractRes {
+  points?: string[]
+  items?: Draft[]
+  uncovered?: string[]
 }
 
 interface DiscussRes {
@@ -62,13 +71,26 @@ const EDIT_FIELDS: { key: keyof Draft; label: string; maxRows?: number }[] = [
   { key: 'example', label: '示例（可留空）', maxRows: 5 },
 ]
 
+// 要点比对用的归一化：忽略空白、标点和大小写。
+// 必须和服务端 cocreation.service 里的算法一致，否则两边对同一条要点会给出不同判断
+function normLite(s: string): string {
+  return (s ?? '')
+    .replace(/[\s\u3000]/g, '')
+    .replace(/[，。、；：！？""''（）《》【】,.!?;:"'()[\]<>—–-]/g, '')
+    .toLowerCase()
+}
+
 export default function RecordPage() {
   const router = useRouter()
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [draft, setDraft] = useState<Draft | null>(null)
+  // 整理结果：一份笔记可能拆出好几条知识，所以草稿是数组
+  const [drafts, setDrafts] = useState<Draft[]>([])
+  // 原料拆出的全部要点，以及一条知识都没认领的那些（正常情况下为空）
+  const [points, setPoints] = useState<string[]>([])
+  const [uncovered, setUncovered] = useState<string[]>([])
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState('')
   const [summarizing, setSummarizing] = useState(false)
@@ -92,7 +114,7 @@ export default function RecordPage() {
   // 微信式：新消息自动滚到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading, cards, draft])
+  }, [messages, loading, cards, drafts])
 
   // 上传一份材料：读懂之后拆成清单，然后跳过去逐条过
   async function uploadFile(e: ChangeEvent<HTMLInputElement>) {
@@ -108,6 +130,14 @@ export default function RecordPage() {
       setError(err.message)
       setUploading(false)
     }
+  }
+
+  // 收起整理结果。结果是一组草稿，清的时候要连带要点清单一起清
+  function clearDrafts() {
+    setDrafts([])
+    setPoints([])
+    setUncovered([])
+    setEditing(false)
   }
 
   // 防崩溃：任何异常回复都不许把页面弄白
@@ -129,8 +159,7 @@ export default function RecordPage() {
     setInput('')
     setMessages((m) => [...m, { role: 'user', content: text }])
     // 草稿先收起来：你说话就是想继续聊
-    setDraft(null)
-    setEditing(false)
+    clearDrafts()
     setLoading(true)
     setError('')
     try {
@@ -167,48 +196,62 @@ export default function RecordPage() {
     }
   }
 
-  // 我发起的整理：基于整段讨论总结出一条草稿，收不收由我判断
+  // 我发起的整理：先把原料拆成要点，再按主题收成多条知识，收不收由我判断
   async function summarize() {
     if (!sessionId || summarizing) return
     setSummarizing(true)
     setError('')
     try {
-      const res = await apiPost<{ draft?: Draft }>('/api/cocreation/summarize', { sessionId })
-      const d = res?.draft
-      // 防崩溃：草稿缺关键字段就当没整理出来，明确告诉用户
-      if (d && typeof d === 'object' && (d.coreConclusion || d.title)) {
-        setDraft(d)
-        setEditing(false)
-      } else {
+      const res = await apiPost<ExtractRes>('/api/cocreation/summarize', { sessionId })
+      // 防崩溃：一条草稿都没出来就当没整理出来，明确告诉用户
+      const items = (Array.isArray(res?.items) ? res.items : []).filter(
+        (d) => d && typeof d === 'object' && (d.coreConclusion || d.title),
+      )
+      if (items.length === 0) {
         setError('这次没整理出有效的草稿，再聊两句或者再试一次')
+        return
       }
+      setDrafts(items)
+      setPoints(Array.isArray(res?.points) ? res.points : [])
+      setUncovered(Array.isArray(res?.uncovered) ? res.uncovered : [])
+      setEditing(false)
     } catch (e: any) {
-      setError(e.message)
+      // 模型偶尔会想很久然后超时，这不是内容的问题，再点一次多半就好，
+      // 所以这里用人话说明白，不要甩一段英文报错给他
+      const msg = String(e?.message ?? '')
+      setError(
+        /timeout|timed out|abort|超时/i.test(msg)
+          ? '这次整理模型想了太久，超时了。再点一次基本就能出来。'
+          : msg || '整理没成功，再试一次',
+      )
     } finally {
       setSummarizing(false)
     }
   }
 
-  // 收录：不跳走，对话里插一条「已收录」，想接着聊接着聊
-  async function confirm(payload?: Draft) {
-    const d = payload ?? draft
-    if (!d) return
+  // 收录：不跳走，对话里插一条「已收录」，想接着聊接着聊。
+  // 一次可能收多条，消息里逐条给出入口
+  async function confirm(payload?: Draft[]) {
+    const list = (payload ?? drafts).filter((d) => d && (d.coreConclusion || d.title))
+    if (list.length === 0) return
     setLoading(true)
     setError('')
     try {
-      const knowledge = await apiPost<{ id: string; title?: string }>('/api/cocreation/confirm', {
-        sessionId,
-        draft: d,
-        sourceType,
-      })
-      setDraft(null)
-      setEditing(false)
+      const res = await apiPost<{ knowledges?: { id: string; title?: string }[] }>(
+        '/api/cocreation/confirm',
+        { sessionId, drafts: list, sourceType },
+      )
+      const saved = Array.isArray(res?.knowledges) ? res.knowledges : []
+      clearDrafts()
       setMessages((m) => [
         ...m,
         {
           role: 'assistant',
-          content: `已收录《${d.title || knowledge.title || '未命名'}》。要继续聊这个话题，或者换个新话题都行。`,
-          knowledgeId: knowledge.id,
+          content:
+            saved.length > 0
+              ? `已收录 ${saved.length} 条知识。要继续聊这个话题，或者换个新话题都行。`
+              : '已收录。',
+          saved,
         },
       ])
     } catch (e: any) {
@@ -219,9 +262,8 @@ export default function RecordPage() {
   }
 
   function discard() {
-    setDraft(null)
-    setEditing(false)
-    setMessages((m) => [...m, { role: 'assistant', content: '好的，这条先不收。我们接着聊。' }])
+    clearDrafts()
+    setMessages((m) => [...m, { role: 'assistant', content: '好的，这次先不收。我们接着聊。' }])
   }
 
   return (
@@ -266,7 +308,7 @@ export default function RecordPage() {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
-                m.knowledgeId
+                m.saved?.length
                   ? 'border border-gold/40 bg-gold/8'
                   : m.role === 'user'
                     ? 'bg-gold/18 text-ink'
@@ -274,13 +316,18 @@ export default function RecordPage() {
               }`}
             >
               <Markdown content={m.content} />
-              {m.knowledgeId && (
-                <Link
-                  href={`/knowledge/${m.knowledgeId}`}
-                  className="mt-2 inline-block text-[13px] text-gold underline underline-offset-4"
-                >
-                  去看看这条知识 →
-                </Link>
+              {m.saved && m.saved.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  {m.saved.map((k) => (
+                    <Link
+                      key={k.id}
+                      href={`/knowledge/${k.id}`}
+                      className="text-[13px] text-gold underline underline-offset-4"
+                    >
+                      《{k.title || '未命名知识'}》→
+                    </Link>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -289,7 +336,7 @@ export default function RecordPage() {
       </div>
 
       {/* 追问卡片：点一下就答完，不用凑一小段话 */}
-      {cards.length > 0 && !draft && (
+      {cards.length > 0 && drafts.length === 0 && (
         <AskCards
           cards={cards}
           state={cardState}
@@ -302,75 +349,108 @@ export default function RecordPage() {
       )}
 
       {/* 我发起的整理：常驻入口，收录的权利在我手里 */}
-      {messages.length > 0 && !draft && !loading && (
+      {messages.length > 0 && drafts.length === 0 && !loading && (
         <button
           className="btn btn-ghost w-full border-dashed"
           onClick={summarize}
           disabled={summarizing || loading}
         >
-          {summarizing ? '正在整理…' : '聊透了，整理成知识'}
+          {summarizing ? '正在整理…（先拆要点，再分条）' : '聊透了，整理成知识'}
         </button>
       )}
 
-      {/* 草稿：四个出口，输入框照常可用，说话即继续聊 */}
-      {draft && !editing && (
+      {/* 整理结果：一份笔记可能拆出多条知识，逐条检查，不要的可以单独剔掉 */}
+      {drafts.length > 0 && !editing && (
         <div className="card border-gold/40">
-          <p className="text-[13px] font-medium text-gold">我把这次讨论整理成了一条知识，你检查一下</p>
-          <div className="mt-4 space-y-4">
-            {draft.title && (
-              <div>
-                <p className="text-[12px] text-muted">标题</p>
-                <p className="mt-1 text-[16px] font-semibold">{draft.title}</p>
-              </div>
-            )}
-            {draft.coreConclusion && (
-              <div>
-                <p className="text-[12px] text-muted">核心结论</p>
-                <p className="mt-1 text-[15px] leading-relaxed">{draft.coreConclusion}</p>
-              </div>
-            )}
-            {draft.briefExplanation && (
-              <div>
-                <p className="text-[12px] text-muted">简要解释</p>
-                <p className="mt-1 text-[14px] leading-relaxed text-ink/85">{draft.briefExplanation}</p>
-              </div>
-            )}
-            {draft.detailExplanation && (
-              <div>
-                <p className="text-[12px] text-muted">详细解释</p>
-                <div className="mt-1">
-                  <Markdown content={draft.detailExplanation} />
-                </div>
-              </div>
-            )}
-            {draft.example && (
-              <div>
-                <p className="text-[12px] text-muted">示例</p>
-                <div className="mt-1">
-                  <Markdown content={draft.example} />
-                </div>
-              </div>
-            )}
-            {draft.type && (
-              <div>
-                <p className="text-[12px] text-muted">类型</p>
-                <p className="mt-1 text-[14px]">{draft.type}</p>
-              </div>
-            )}
-            {draft.tags && draft.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {draft.tags.map((t) => (
-                  <span key={t} className="rounded-full bg-gold/15 px-2 py-0.5 text-[11px]">
-                    #{t}
-                  </span>
-                ))}
-              </div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[13px] font-medium text-gold">
+              这次整理出 {drafts.length} 条知识，你检查一下
+            </p>
+            {/* 要点核对：原料里说过的每一条，都该落到某条知识里 */}
+            {points.length > 0 && (
+              <span className={`text-[12px] ${uncovered.length ? 'text-danger' : 'text-muted'}`}>
+                {uncovered.length
+                  ? `${points.length} 条要点里有 ${uncovered.length} 条还没落地`
+                  : `原料的 ${points.length} 条要点全部落地`}
+              </span>
             )}
           </div>
 
+          <div className="mt-4 space-y-3">
+            {drafts.map((d, i) => (
+              <div key={i} className="rounded-xl border border-ink/12 bg-surface2/40 p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-[15px] font-semibold leading-snug">
+                    <span className="mr-1.5 text-[12px] font-normal text-muted">{i + 1}</span>
+                    {d.title || '未命名知识'}
+                  </p>
+                  {drafts.length > 1 && (
+                    <button
+                      onClick={() => setDrafts((list) => list.filter((_, j) => j !== i))}
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[12px] text-muted transition hover:text-danger"
+                    >
+                      这条不收
+                    </button>
+                  )}
+                </div>
+                {d.coreConclusion && (
+                  <p className="mt-2 text-[14px] leading-relaxed">{d.coreConclusion}</p>
+                )}
+                {d.detailExplanation && (
+                  <div className="mt-2 text-[13px] leading-relaxed text-ink/85">
+                    <Markdown content={d.detailExplanation} />
+                  </div>
+                )}
+                {d.example && (
+                  <div className="mt-2 text-[13px] leading-relaxed text-muted">
+                    <Markdown content={d.example} />
+                  </div>
+                )}
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-full bg-mist px-2 py-0.5 text-[11px] text-muted">
+                    {d.type || '概念'}
+                  </span>
+                  {d.tags?.map((t) => (
+                    <span key={t} className="rounded-full bg-gold/15 px-2 py-0.5 text-[11px]">
+                      #{t}
+                    </span>
+                  ))}
+                  {d.keyPoints?.length ? (
+                    <span className="text-[11px] text-muted">覆盖 {d.keyPoints.length} 条要点</span>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 要点对照：想核对的时候展开，平时不占地方 */}
+          {points.length > 0 && (
+            <details className="mt-3 rounded-xl border border-ink/12 p-3">
+              <summary className="cursor-pointer text-[12px] text-muted">
+                看原料的每个要点落在了哪条知识
+              </summary>
+              <ul className="mt-2.5 space-y-1.5">
+                {points.map((p, i) => {
+                  const owner = drafts.findIndex((d) =>
+                    (d.keyPoints ?? []).some((kp) => normLite(kp) === normLite(p)),
+                  )
+                  return (
+                    <li key={i} className="flex items-start gap-2 text-[12px] leading-relaxed">
+                      <span className="mt-[3px] shrink-0 text-muted">{i + 1}</span>
+                      <span className="min-w-0 flex-1">{p}</span>
+                      <span className={`shrink-0 ${owner >= 0 ? 'text-muted' : 'text-danger'}`}>
+                        {owner >= 0 ? `→ 第 ${owner + 1} 条` : '未落地'}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </details>
+          )}
+
           {/* 来源选择 */}
-          <div className="mt-5 border-t border-ink/10 pt-4">
-            <p className="mb-2 text-[12px] text-muted">这条知识来自哪里？</p>
+          <div className="mt-4 border-t border-ink/10 pt-4">
+            <p className="mb-2 text-[12px] text-muted">这些知识来自哪里？</p>
             <div className="flex flex-wrap gap-2">
               {SOURCE_TYPES.map((s) => (
                 <button
@@ -390,12 +470,12 @@ export default function RecordPage() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button className="btn btn-primary" onClick={() => confirm()} disabled={loading}>
-              收录
+              {drafts.length > 1 ? `收录这 ${drafts.length} 条` : '收录'}
             </button>
             <button className="btn btn-ghost" onClick={() => setEditing(true)}>
               修改后收录
             </button>
-            <button className="btn btn-ghost" onClick={() => setDraft(null)}>
+            <button className="btn btn-ghost" onClick={clearDrafts}>
               还没聊透，继续聊
             </button>
             <button className="btn btn-ghost" onClick={discard}>
@@ -409,24 +489,43 @@ export default function RecordPage() {
       )}
 
       {/* 编辑模式：固定标签，一眼分清哪个框是什么 */}
-      {draft && editing && (
+      {drafts.length > 0 && editing && (
         <div className="card border-gold/40">
           <p className="mb-3 text-[13px] font-medium text-gold">改成你自己的说法，再收录</p>
-          <div className="space-y-3">
-            {EDIT_FIELDS.map((f) => (
-              <div key={f.key}>
-                <p className="mb-1.5 text-[12px] font-medium text-muted">{f.label}</p>
-                <AutoTextarea
-                  className="input"
-                  maxRows={f.maxRows}
-                  value={(draft[f.key] as string) ?? ''}
-                  onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-                />
+          <div className="space-y-5">
+            {drafts.map((d, i) => (
+              <div key={i} className="space-y-3 rounded-xl border border-ink/12 p-3.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] text-muted">第 {i + 1} 条</p>
+                  {drafts.length > 1 && (
+                    <button
+                      onClick={() => setDrafts((list) => list.filter((_, j) => j !== i))}
+                      className="rounded-full px-2 py-0.5 text-[12px] text-muted transition hover:text-danger"
+                    >
+                      不收这条
+                    </button>
+                  )}
+                </div>
+                {EDIT_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <p className="mb-1.5 text-[12px] font-medium text-muted">{f.label}</p>
+                    <AutoTextarea
+                      className="input"
+                      maxRows={f.maxRows}
+                      value={(d[f.key] as string) ?? ''}
+                      onChange={(e) =>
+                        setDrafts((list) =>
+                          list.map((x, j) => (j === i ? { ...x, [f.key]: e.target.value } : x)),
+                        )
+                      }
+                    />
+                  </div>
+                ))}
               </div>
             ))}
           </div>
           <div className="mt-3">
-            <p className="mb-2 text-[12px] text-muted">这条知识来自哪里？</p>
+            <p className="mb-2 text-[12px] text-muted">这些知识来自哪里？</p>
             <div className="flex flex-wrap gap-2">
               {SOURCE_TYPES.map((s) => (
                 <button
