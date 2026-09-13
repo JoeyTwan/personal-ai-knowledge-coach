@@ -10,6 +10,7 @@ import {
   startItem,
   answerItem,
   addExample,
+  chatAboutItem,
   getItemThread,
   completeItem,
   skipItem,
@@ -110,6 +111,19 @@ export async function materialRoutes(app: FastifyInstance) {
       const { text } = req.body as { text?: string }
       if (!text || !text.trim()) return reply.code(400).send({ error: '还没写例子' })
       return await addExample(userId, itemId, text.trim())
+    } catch (e) {
+      return fail(reply, e)
+    }
+  })
+
+  // 过关之后的自由讨论：不影响判定，不改草稿
+  app.post('/api/material/items/:itemId/chat', async (req, reply) => {
+    try {
+      const userId = await getDefaultUserId()
+      const { itemId } = req.params as { itemId: string }
+      const { text } = req.body as { text?: string }
+      if (!text || !text.trim()) return reply.code(400).send({ error: '还没写内容' })
+      return await chatAboutItem(userId, itemId, text.trim())
     } catch (e) {
       return fail(reply, e)
     }

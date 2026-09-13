@@ -32,6 +32,8 @@ export default function Composer({
   const canSend = value.trim().length > 0 && !loading
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // 输入法组合态（拼音选词、英文补全）中的回车是「上屏」，不是发送
+    if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (canSend) onSubmit()

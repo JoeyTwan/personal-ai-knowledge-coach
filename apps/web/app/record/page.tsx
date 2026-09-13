@@ -12,6 +12,8 @@ import AskCards, { type AskCard, type CardAnswer, type GroupState } from '@/comp
 interface Msg {
   role: 'user' | 'assistant'
   content: string
+  // 收录完成时插入的消息带这个字段，渲染成一张可点的卡
+  knowledgeId?: string
 }
 
 interface Draft {
@@ -28,8 +30,8 @@ interface DiscussRes {
   sessionId: string
   reply: string
   cards?: AskCard[]
-  consensusReached: boolean
-  draft: Draft | null
+  // AI 识别出用户想收录了，前端自动触发整理
+  ready?: boolean
 }
 
 // 来源固定三类
@@ -51,7 +53,15 @@ const KIND_LABEL: Record<string, string> = {
   text: '文本',
 }
 
-// 追问卡片兜底：超过两张也不是问题，但仍只答一张一件事
+// 编辑态的五个字段：固定标签，不用占位符充当
+const EDIT_FIELDS: { key: keyof Draft; label: string; maxRows?: number }[] = [
+  { key: 'title', label: '标题' },
+  { key: 'coreConclusion', label: '核心结论', maxRows: 5 },
+  { key: 'briefExplanation', label: '简要解释（可留空）', maxRows: 4 },
+  { key: 'detailExplanation', label: '详细解释（可留空）', maxRows: 8 },
+  { key: 'example', label: '示例（可留空）', maxRows: 5 },
+]
+
 export default function RecordPage() {
   const router = useRouter()
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -79,6 +89,11 @@ export default function RecordPage() {
       .catch(() => undefined)
   }, [])
 
+  // 微信式：新消息自动滚到底部
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, loading, cards, draft])
+
   // 上传一份材料：读懂之后拆成清单，然后跳过去逐条过
   async function uploadFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -95,22 +110,17 @@ export default function RecordPage() {
     }
   }
 
-  // 微信式：新消息自动滚到底部
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading, cards, draft])
-
+  // 防崩溃：任何异常回复都不许把页面弄白
   function applyReply(res: DiscussRes) {
     setSessionId(res.sessionId)
-    setMessages((m) => [...m, { role: 'assistant', content: res.reply }])
-    if (res.consensusReached) {
-      setDraft(res.draft)
-      setCards([])
-    } else {
-      setCards(res.cards ?? [])
-      setCardAnswers({})
-      setCardState('answering')
-    }
+    // 防崩溃：任何异常回复都不许把页面弄白
+    const reply = typeof res.reply === 'string' && res.reply.trim() ? res.reply : '（这轮我出岔了，你再说一遍试试）'
+    setMessages((m) => [...m, { role: 'assistant', content: reply }])
+    const list = Array.isArray(res.cards) ? res.cards : []
+    setCards(list)
+    setCardAnswers({})
+    setCardState('answering')
+    if (res.ready) void summarize()
   }
 
   async function send() {
@@ -118,6 +128,9 @@ export default function RecordPage() {
     const text = input.trim()
     setInput('')
     setMessages((m) => [...m, { role: 'user', content: text }])
+    // 草稿先收起来：你说话就是想继续聊
+    setDraft(null)
+    setEditing(false)
     setLoading(true)
     setError('')
     try {
@@ -154,42 +167,61 @@ export default function RecordPage() {
     }
   }
 
+  // 我发起的整理：基于整段讨论总结出一条草稿，收不收由我判断
+  async function summarize() {
+    if (!sessionId || summarizing) return
+    setSummarizing(true)
+    setError('')
+    try {
+      const res = await apiPost<{ draft?: Draft }>('/api/cocreation/summarize', { sessionId })
+      const d = res?.draft
+      // 防崩溃：草稿缺关键字段就当没整理出来，明确告诉用户
+      if (d && typeof d === 'object' && (d.coreConclusion || d.title)) {
+        setDraft(d)
+        setEditing(false)
+      } else {
+        setError('这次没整理出有效的草稿，再聊两句或者再试一次')
+      }
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSummarizing(false)
+    }
+  }
+
+  // 收录：不跳走，对话里插一条「已收录」，想接着聊接着聊
   async function confirm(payload?: Draft) {
     const d = payload ?? draft
     if (!d) return
     setLoading(true)
     setError('')
     try {
-      const knowledge = await apiPost<any>('/api/cocreation/confirm', {
+      const knowledge = await apiPost<{ id: string; title?: string }>('/api/cocreation/confirm', {
         sessionId,
         draft: d,
         sourceType,
       })
-      router.push(`/knowledge/${knowledge.id}`)
+      setDraft(null)
+      setEditing(false)
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          content: `已收录《${d.title || knowledge.title || '未命名'}》。要继续聊这个话题，或者换个新话题都行。`,
+          knowledgeId: knowledge.id,
+        },
+      ])
     } catch (e: any) {
       setError(e.message)
+    } finally {
       setLoading(false)
     }
   }
 
   function discard() {
     setDraft(null)
-    setMessages((m) => [...m, { role: 'assistant', content: '好的，已放弃这条，我们继续。' }])
-  }
-
-  // 兜底：AI 未自动出共识标记时，用户主动触发总结生成草稿
-  async function summarize() {
-    if (!sessionId || summarizing) return
-    setSummarizing(true)
-    setError('')
-    try {
-      const res = await apiPost<{ draft: Draft }>('/api/cocreation/summarize', { sessionId })
-      if (res.draft) setDraft(res.draft)
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSummarizing(false)
-    }
+    setEditing(false)
+    setMessages((m) => [...m, { role: 'assistant', content: '好的，这条先不收。我们接着聊。' }])
   }
 
   return (
@@ -234,13 +266,21 @@ export default function RecordPage() {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
-                m.role === 'user' ? 'bg-gold/18 text-ink' : 'bg-surface2 text-ink'
+                m.knowledgeId
+                  ? 'border border-gold/40 bg-gold/8'
+                  : m.role === 'user'
+                    ? 'bg-gold/18 text-ink'
+                    : 'bg-surface2 text-ink'
               }`}
             >
-              {m.role === 'user' ? (
-                <span className="whitespace-pre-wrap">{m.content}</span>
-              ) : (
-                <Markdown content={m.content} />
+              <Markdown content={m.content} />
+              {m.knowledgeId && (
+                <Link
+                  href={`/knowledge/${m.knowledgeId}`}
+                  className="mt-2 inline-block text-[13px] text-gold underline underline-offset-4"
+                >
+                  去看看这条知识 →
+                </Link>
               )}
             </div>
           </div>
@@ -261,10 +301,21 @@ export default function RecordPage() {
         />
       )}
 
-      {/* 共识草稿：完整展示待收录知识 */}
+      {/* 我发起的整理：常驻入口，收录的权利在我手里 */}
+      {messages.length > 0 && !draft && !loading && (
+        <button
+          className="btn btn-ghost w-full border-dashed"
+          onClick={summarize}
+          disabled={summarizing || loading}
+        >
+          {summarizing ? '正在整理…' : '聊透了，整理成知识'}
+        </button>
+      )}
+
+      {/* 草稿：四个出口，输入框照常可用，说话即继续聊 */}
       {draft && !editing && (
         <div className="card border-gold/40">
-          <p className="text-[13px] font-medium text-gold">已形成共识，请检查下面的知识，确认无误后收录</p>
+          <p className="text-[13px] font-medium text-gold">我把这次讨论整理成了一条知识，你检查一下</p>
           <div className="mt-4 space-y-4">
             {draft.title && (
               <div>
@@ -344,55 +395,38 @@ export default function RecordPage() {
             <button className="btn btn-ghost" onClick={() => setEditing(true)}>
               修改后收录
             </button>
+            <button className="btn btn-ghost" onClick={() => setDraft(null)}>
+              还没聊透，继续聊
+            </button>
             <button className="btn btn-ghost" onClick={discard}>
               放弃
             </button>
           </div>
+          <p className="mt-2 text-[12px] text-muted">
+            下面输入框照常能用：你一说话我们就接着聊，这份草稿先收起来。
+          </p>
         </div>
       )}
 
-      {/* 编辑模式 */}
+      {/* 编辑模式：固定标签，一眼分清哪个框是什么 */}
       {draft && editing && (
         <div className="card border-gold/40">
-          <p className="mb-3 text-[13px] font-medium text-gold">修改后再收录</p>
+          <p className="mb-3 text-[13px] font-medium text-gold">改成你自己的说法，再收录</p>
           <div className="space-y-3">
-            <AutoTextarea
-              className="input"
-              value={draft.title ?? ''}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              placeholder="标题"
-            />
-            <AutoTextarea
-              className="input"
-              maxRows={5}
-              value={draft.coreConclusion ?? ''}
-              onChange={(e) => setDraft({ ...draft, coreConclusion: e.target.value })}
-              placeholder="核心结论"
-            />
-            <AutoTextarea
-              className="input"
-              maxRows={4}
-              value={draft.briefExplanation ?? ''}
-              onChange={(e) => setDraft({ ...draft, briefExplanation: e.target.value })}
-              placeholder="简要解释（可选）"
-            />
-            <AutoTextarea
-              className="input"
-              maxRows={8}
-              value={draft.detailExplanation ?? ''}
-              onChange={(e) => setDraft({ ...draft, detailExplanation: e.target.value })}
-              placeholder="详细解释（可选）"
-            />
-            <AutoTextarea
-              className="input"
-              maxRows={5}
-              value={draft.example ?? ''}
-              onChange={(e) => setDraft({ ...draft, example: e.target.value })}
-              placeholder="示例（可选）"
-            />
+            {EDIT_FIELDS.map((f) => (
+              <div key={f.key}>
+                <p className="mb-1.5 text-[12px] font-medium text-muted">{f.label}</p>
+                <AutoTextarea
+                  className="input"
+                  maxRows={f.maxRows}
+                  value={(draft[f.key] as string) ?? ''}
+                  onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                />
+              </div>
+            ))}
           </div>
           <div className="mt-3">
-            <p className="mb-2 text-[12px] text-muted">来源</p>
+            <p className="mb-2 text-[12px] text-muted">这条知识来自哪里？</p>
             <div className="flex flex-wrap gap-2">
               {SOURCE_TYPES.map((s) => (
                 <button
@@ -417,18 +451,6 @@ export default function RecordPage() {
               返回
             </button>
           </div>
-        </div>
-      )}
-
-      {/* 兜底：AI 未出草稿时提供手动总结入口 */}
-      {!draft && cards.length === 0 && messages.length > 0 && !loading && (
-        <div className="card border-gold/30">
-          <p className="text-[13px] text-muted">
-            如果教练还没有给出结论，你可以直接让教练基于上面的讨论总结出一条知识草稿。
-          </p>
-          <button className="btn btn-ghost mt-2" onClick={summarize} disabled={summarizing}>
-            {summarizing ? '正在总结…' : '生成知识草稿'}
-          </button>
         </div>
       )}
 

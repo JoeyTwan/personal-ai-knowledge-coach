@@ -16,7 +16,6 @@ export interface AskCard {
   question?: string
   statement?: string
   options?: AskOption[]
-  unsure?: boolean
   scaffold?: string
   placeholder?: string
 }
@@ -30,8 +29,9 @@ export interface ItemAnswer {
 
 export const ASK_TYPES: AskType[] = ['judge', 'scenario', 'choose', 'contrast', 'fill', 'say']
 export const CHOICE_TYPES: AskType[] = ['judge', 'scenario', 'choose', 'contrast']
-// 每个点选题都带这个出口，用户永远可以说「说不好」，不会被卡死
-export const UNSURE = '__unsure__'
+// 每个点选题都由界面自动挂一个「都不对，我说说我的想法」出口，
+// 用户选了它会附上自己的话，答案以他的话为准
+export const OTHER = '__other__'
 export const ASK_LABEL: Record<AskType, string> = {
   judge: '判断',
   scenario: '选场景',
@@ -74,7 +74,6 @@ export function normalizeCard(input: unknown, index: number): AskCard | null {
     question: question || undefined,
     statement: statement || undefined,
     options: options.length ? options : undefined,
-    unsure: type === 'judge' && raw.unsure !== false,
     scaffold: typeof raw.scaffold === 'string' ? raw.scaffold.trim() : undefined,
     placeholder: typeof raw.placeholder === 'string' ? raw.placeholder.trim() : undefined,
   }
@@ -121,8 +120,9 @@ export function describeAnswers(cards: AskCard[], answers: ItemAnswer[]): string
     const hit = answers.find((a) => a.cardId === card.id)
     if (!hit) continue
     const label = ASK_LABEL[card.type] ?? '作答'
-    if (hit.choice === UNSURE) {
-      lines.push(`- ${label}：说不好，我不确定`)
+    // 用户没选任何选项，说的是自己的想法，以他的话为准
+    if (hit.choice === OTHER) {
+      lines.push(`- ${label}：以上选项我都不认可，我的想法是：${(hit.text ?? '').trim() || '（没说）'}`)
       continue
     }
     if (hit.choice) {
@@ -135,7 +135,12 @@ export function describeAnswers(cards: AskCard[], answers: ItemAnswer[]): string
   return lines.length ? `我的作答：\n${lines.join('\n')}` : ''
 }
 
-// 用户可见的部分：去掉卡片标记
+// 用户可见的部分：去掉卡片标记。
+// 注意两种都要处理：闭合的标记整段剥掉；回复被截断留下的未闭合残段也要剥掉，
+// 否则用户会看到半截 JSON 裸奔在对话里
 export function stripAsk(reply: string): string {
-  return reply.replace(/<ASK>[\s\S]*?<\/ASK>/g, '').trim()
+  return reply
+    .replace(/<ASK>[\s\S]*?<\/ASK>/g, '')
+    .replace(/<ASK>(?![\s\S]*<\/ASK>)[\s\S]*$/g, '')
+    .trim()
 }

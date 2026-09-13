@@ -3,7 +3,7 @@ import { chat, chatJSON } from '../ai/client'
 import { cocreateSystem, classifySystem, detectEvolutionSystem, extractKnowledgeSystem } from '../ai/prompts'
 import { parseAsk, stripAsk } from '../ai/cards'
 import { getProfileText } from './user.service'
-import { createKnowledge } from './knowledge.service'
+import { createKnowledge, MASTERY_DISCUSS, MASTERY_PASSED } from './knowledge.service'
 import { generateBullets } from './bullets.service'
 import { discoverRelations } from './relation.service'
 import { maybeRefreshProfile } from './profile.service'
@@ -23,19 +23,22 @@ interface KnowledgeDraft {
   tags?: string[]
 }
 
-// 从 AI 回复中解析共识标记
-function parseConsensus(reply: string): { reached: boolean; draft: KnowledgeDraft | null } {
-  const m = reply.match(/<CONSENSUS>([\s\S]*?)<\/CONSENSUS>/)
-  if (!m) return { reached: false, draft: null }
-  try {
-    const draft = JSON.parse(m[1]) as KnowledgeDraft
-    return { reached: true, draft }
-  } catch {
-    return { reached: true, draft: null }
-  }
+// 从 AI 回复中解析「用户想整理了」的标记。
+// 整理的发起权永远在用户：只有用户明确说了要收录，AI 才会输出这个标记。
+function parseReady(reply: string): boolean {
+  return /<READY>/.test(reply)
 }
 
 // 从 AI 回复中解析追问卡片（parseAsk 在 ai/cards.ts，与材料过关共用同一套）
+
+// 用户可见的部分：所有协议标记都要剥掉，包括回复被截断时留下的未闭合残段
+function cleanVisible(reply: string): string {
+  return stripAsk(reply)
+    .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
+    .replace(/<CONSENSUS>(?![\s\S]*<\/CONSENSUS>)[\s\S]*$/g, '')
+    .replace(/<READY>/g, '')
+    .trim()
+}
 
 export async function discuss(userId: string, sessionId: string | null, userMessage: string) {
   let session = sessionId
@@ -51,14 +54,8 @@ export async function discuss(userId: string, sessionId: string | null, userMess
     { role: 'user', content: userMessage },
   ]
 
-  const reply = await chat(messages)
-
-  // P2-6：首轮讨论强制至少追问一轮。即使 AI 首轮就输出共识标记，也忽略，避免未澄清就直接入库。
-  const isFirstTurn = history.length === 0
-  let consensus = parseConsensus(reply)
-  if (isFirstTurn && consensus.reached) {
-    consensus = { reached: false, draft: null }
-  }
+  // 2048 对「正文 + 卡片 + 越来越长的上下文」偏紧，截断会把标记切坏
+  const reply = await chat(messages, { maxTokens: 3072 })
 
   const newHistory: StoredMessage[] = [
     ...history,
@@ -85,14 +82,14 @@ export async function discuss(userId: string, sessionId: string | null, userMess
 
   return {
     sessionId: session.id,
-    reply: stripAsk(reply).replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '').trim(),
+    reply: cleanVisible(reply),
     cards: parseAsk(reply),
-    consensusReached: consensus.reached,
-    draft: consensus.draft,
+    ready: parseReady(reply),
   }
 }
 
-// P2-1：AI 未自动输出共识标记时的兜底。用户点击「生成草稿」，基于整段对话历史强制总结出一条知识草稿。
+// 用户主动发起「整理成知识」。基于整段讨论历史总结出一条结构化草稿，
+// 草稿对不对由用户判断：可以改、可以放弃、也可以继续聊。
 export async function summarizeConsensus(userId: string, sessionId: string) {
   const session = await prisma.conversationSession.findUnique({ where: { id: sessionId } })
   if (!session) return null
@@ -100,22 +97,25 @@ export async function summarizeConsensus(userId: string, sessionId: string) {
   const history = JSON.parse(session.messages) as StoredMessage[]
   if (history.length === 0) return null
 
-  const profile = await getProfileText(userId)
-
-  const draft = await chatJSON<KnowledgeDraft>([
-    { role: 'system', content: extractKnowledgeSystem() },
-    {
-      role: 'user',
-      content: `以下是用户与知识教练的讨论记录，请把它们整理成一条结构化知识（若信息不足以形成结论，用已有信息合理归纳，不要在字段里留「待补充」）。\n\n${history
-        .map(
-          (m) =>
-            `${m.role === 'user' ? '用户' : '教练'}：${stripAsk(
-              m.content.replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, ''),
-            ).trim()}`,
-        )
-        .join('\n')}`,
-    },
-  ])
+  const draft = await chatJSON<KnowledgeDraft>(
+    [
+      { role: 'system', content: extractKnowledgeSystem() },
+      {
+        role: 'user',
+        content: `以下是用户与知识教练的讨论记录，请把它们整理成一条结构化知识。核心结论尽量沿用用户自己说过的话和用词，不要换成书面语；信息不足以形成结论时，用已有信息合理归纳，不要在字段里留「待补充」。\n\n${history
+          .map(
+            (m) =>
+              `${m.role === 'user' ? '用户' : '教练'}：${stripAsk(
+                m.content
+                  .replace(/<CONSENSUS>[\s\S]*?<\/CONSENSUS>/g, '')
+                  .replace(/<READY>/g, ''),
+              ).trim()}`,
+          )
+          .join('\n')}`,
+      },
+    ],
+    { maxTokens: 2500 },
+  )
 
   return { draft }
 }
@@ -125,6 +125,8 @@ export interface ConfirmInput {
   categoryPath?: string[]
   sourceType?: string
   sourceDetail?: string
+  // 这条知识是怎么学来的：材料过关比纯讨论多一层验证，初始掌握度略高
+  learnedVia?: 'discuss' | 'material'
 }
 
 // P0-4 修复：知识演化 —— 更新旧知识而非新建（保留历史版本 + 提升可信度 + 追加来源）
@@ -287,6 +289,7 @@ export async function confirmKnowledge(userId: string, sessionId: string | null,
     tags,
     categoryPath,
     bullets,
+    mastery: input.learnedVia === 'material' ? MASTERY_PASSED : MASTERY_DISCUSS,
     sources: [
       { type: sourceType, detail: input.sourceDetail, occurredAt: new Date().toISOString() },
     ],

@@ -101,7 +101,7 @@ function progressOf(cards: AskCard[]): string {
   if (cards.length === 0) return ''
   return cards.every((c) => c.type === 'say')
     ? '最后一步：用一句话说说这条解决什么问题'
-    : '选一个就行，拿不准就点说不好'
+    : '选一个就行，都不对就自己写'
 }
 
 let seq = 0
@@ -125,6 +125,8 @@ export default function MaterialPage() {
   const [exampleOpen, setExampleOpen] = useState(false)
   const [exampleText, setExampleText] = useState('')
   const [editing, setEditing] = useState(false)
+  // 过关之后的自由讨论
+  const [chatText, setChatText] = useState('')
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -301,6 +303,28 @@ export default function MaterialPage() {
     }
   }
 
+  // 收录：材料过关走更高的掌握档
+  // 过关之后的自由讨论：不影响判定，不改草稿，随时能接着问
+  async function sendChat() {
+    if (!activeItem || !chatText.trim() || thinking) return
+    const text = chatText.trim()
+    setChatText('')
+    setThinking(true)
+    setError('')
+    setThread((t) => [...t, { kind: 'text', key: nextKey(), role: 'user', content: text }])
+    try {
+      const res = await apiPost<{ reply: string }>(`/api/material/items/${activeItem.id}/chat`, {
+        text,
+      })
+      const reply = typeof res?.reply === 'string' && res.reply.trim() ? res.reply : '（这轮我出岔了，再问一次试试）'
+      setThread((t) => [...t, { kind: 'text', key: nextKey(), role: 'assistant', content: reply }])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setThinking(false)
+    }
+  }
+
   async function confirm() {
     if (!draft || !activeItem) return
     setThinking(true)
@@ -311,6 +335,7 @@ export default function MaterialPage() {
         draft,
         sourceType,
         sourceDetail: material ? `材料《${material.title}》` : undefined,
+        learnedVia: 'material',
       })
       await apiPost(`/api/material/items/${activeItem.id}/complete`, { knowledgeId: knowledge.id })
       closeItem()
@@ -343,6 +368,7 @@ export default function MaterialPage() {
     setExampleOpen(false)
     setExampleText('')
     setEditing(false)
+    setChatText('')
   }
 
   if (loading) return <div className="card text-sm text-muted">正在加载材料…</div>
@@ -518,40 +544,23 @@ export default function MaterialPage() {
               {/* 草稿允许直接改：AI 讲错的地方，用户说了算 */}
               {editing && (
                 <div className="mt-4 space-y-3">
-                  <AutoTextarea
-                    className="input"
-                    value={draft.title ?? ''}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    placeholder="标题"
-                  />
-                  <AutoTextarea
-                    className="input"
-                    maxRows={5}
-                    value={draft.coreConclusion ?? ''}
-                    onChange={(e) => setDraft({ ...draft, coreConclusion: e.target.value })}
-                    placeholder="核心结论"
-                  />
-                  <AutoTextarea
-                    className="input"
-                    maxRows={4}
-                    value={draft.briefExplanation ?? ''}
-                    onChange={(e) => setDraft({ ...draft, briefExplanation: e.target.value })}
-                    placeholder="简要解释（可选）"
-                  />
-                  <AutoTextarea
-                    className="input"
-                    maxRows={8}
-                    value={draft.detailExplanation ?? ''}
-                    onChange={(e) => setDraft({ ...draft, detailExplanation: e.target.value })}
-                    placeholder="详细解释（可选）"
-                  />
-                  <AutoTextarea
-                    className="input"
-                    maxRows={5}
-                    value={draft.example ?? ''}
-                    onChange={(e) => setDraft({ ...draft, example: e.target.value })}
-                    placeholder="例子（可选）"
-                  />
+                  {[
+                    { key: 'title' as const, label: '标题' },
+                    { key: 'coreConclusion' as const, label: '核心结论', maxRows: 5 },
+                    { key: 'briefExplanation' as const, label: '简要解释（可留空）', maxRows: 4 },
+                    { key: 'detailExplanation' as const, label: '详细解释（可留空）', maxRows: 8 },
+                    { key: 'example' as const, label: '例子（可留空）', maxRows: 5 },
+                  ].map((f) => (
+                    <div key={f.key}>
+                      <p className="mb-1.5 text-[12px] font-medium text-muted">{f.label}</p>
+                      <AutoTextarea
+                        className="input"
+                        maxRows={f.maxRows}
+                        value={(draft[f.key] as string) ?? ''}
+                        onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -671,6 +680,30 @@ export default function MaterialPage() {
                   先放着，过下一条
                 </button>
               </div>
+
+              {/* 收录前还能继续问：有疑问不等于没过关 */}
+              {!editing && (
+                <div className="mt-4 border-t border-ink/10 pt-4">
+                  <p className="mb-2 text-[12px] text-muted">还有疑问？接着聊，不影响收录</p>
+                  <div className="flex gap-2">
+                    <AutoTextarea
+                      className="input"
+                      rows={1}
+                      maxRows={4}
+                      value={chatText}
+                      onChange={(e) => setChatText(e.target.value)}
+                      placeholder="比如：那如果换成我的客户那个场景……"
+                    />
+                    <button
+                      className="btn btn-ghost shrink-0"
+                      onClick={sendChat}
+                      disabled={thinking || !chatText.trim()}
+                    >
+                      问
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -21,6 +21,38 @@ export interface CreateKnowledgeInput {
   confidence?: number
   // 弹幕要点（AI 拆解的短句，用于首页弹幕）
   bullets?: string[]
+  // 初始掌握度。收录本身就是学习证据，不能从「没学过」起算
+  mastery?: MasteryPreset
+}
+
+// 六个掌握维度：回忆、理解、应用、关联靠学习过程挣，稳定只能靠间隔复习挣
+export interface MasteryPreset {
+  awareness: number
+  recall: number
+  understanding: number
+  association: number
+  application: number
+  stability: number
+}
+
+// 讨论收录：跟教练聊透过，理解给高；稳定低，要靠之后的复习沉淀
+export const MASTERY_DISCUSS: MasteryPreset = {
+  awareness: 0.9,
+  recall: 0.6,
+  understanding: 0.75,
+  association: 0.4,
+  application: 0.5,
+  stability: 0.15,
+}
+
+// 材料过关收录：多一层「认出来 + 用得上 + 说一句」的验证，比纯讨论略高
+export const MASTERY_PASSED: MasteryPreset = {
+  awareness: 0.9,
+  recall: 0.7,
+  understanding: 0.8,
+  association: 0.45,
+  application: 0.55,
+  stability: 0.2,
 }
 
 // 根据分类路径找到或创建分类（树形）
@@ -78,17 +110,18 @@ export async function createKnowledge(userId: string, input: CreateKnowledgeInpu
     },
   })
 
-  // 初始化掌握状态（新知识未掌握，安排初次检测）
+  // 初始化掌握状态：收录即学习证据，初始值由来源决定；稳定维度一律低起，靠间隔复习挣
+  const m = input.mastery ?? MASTERY_DISCUSS
   await prisma.userKnowledgeState.create({
     data: {
       userId,
       knowledgeId: knowledge.id,
-      awareness: 0.3,
-      recall: 0.1,
-      understanding: 0.1,
-      association: 0.1,
-      application: 0.1,
-      stability: 0.1,
+      awareness: m.awareness,
+      recall: m.recall,
+      understanding: m.understanding,
+      association: m.association,
+      application: m.application,
+      stability: m.stability,
       nextReviewAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     },
   })

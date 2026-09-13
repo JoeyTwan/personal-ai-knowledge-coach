@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma'
 import { chat, chatJSON, imageDataUrl, isSupportedImage, type ChatMessage } from '../ai/client'
-import { materialDigestSystem, materialCoachSystem } from '../ai/prompts'
+import { materialDigestSystem, materialCoachSystem, materialFreeChatSystem } from '../ai/prompts'
 import { parseAsk, describeAnswers, stripAsk, type AskCard, type ItemAnswer } from '../ai/cards'
 import { getProfileText } from './user.service'
 
@@ -569,6 +569,58 @@ export async function addExample(userId: string, itemId: string, text: string) {
   ])
 
   return { reply: stripMarkers(reply), draft }
+}
+
+// 过关之后的自由讨论：用户还有疑问可以继续聊。不影响判定，不改草稿，不收口
+export async function chatAboutItem(userId: string, itemId: string, text: string) {
+  const item = await prisma.materialItem.findFirst({
+    where: { id: itemId, material: { userId } },
+    include: { material: true },
+  })
+  if (!item) throw new MaterialError('这条要点不存在')
+  if (!item.sessionId) throw new MaterialError('这条还没开始')
+
+  const session = await prisma.conversationSession.findUnique({ where: { id: item.sessionId } })
+  if (!session) throw new MaterialError('讨论记录已失效，请重新开始这一条')
+
+  const state = readState(item.askState)
+  if (state.cards.length > 0) throw new MaterialError('先答完上面的卡，再自由讨论')
+
+  const keyFacts = item.keyFacts ? (JSON.parse(item.keyFacts) as string[]) : []
+  const history = JSON.parse(session.messages) as StoredMessage[]
+  const message = text.trim()
+
+  const reply = await chat(
+    [
+      {
+        role: 'system',
+        content: materialFreeChatSystem(
+          { title: item.title, gist: item.gist, keyFacts },
+          item.material.title,
+        ),
+      },
+      // 历史里的协议标记对自由讨论是噪音，剥掉再喂给模型
+      ...history.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.role === 'assistant' ? stripMarkers(m.content) : m.content,
+      })),
+      { role: 'user', content: message },
+    ],
+    { temperature: 0.5, maxTokens: 1200 },
+  )
+
+  await prisma.conversationSession.update({
+    where: { id: session.id },
+    data: {
+      messages: JSON.stringify([
+        ...history,
+        { role: 'user', content: message },
+        { role: 'assistant', content: reply },
+      ] satisfies StoredMessage[]),
+    },
+  })
+
+  return { reply: stripMarkers(reply) }
 }
 
 // 刷新页面后接着答：把这条的对话和还没答的卡都还给前端

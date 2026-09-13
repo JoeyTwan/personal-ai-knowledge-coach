@@ -171,7 +171,25 @@ export default function KnowledgeDetailPage() {
       {/* 当前掌握 */}
       {state && (
         <section>
-          <h2 className="mb-2 text-[15px] font-semibold">当前掌握</h2>
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="text-[15px] font-semibold">当前掌握</h2>
+            <span className="text-[13px] text-muted">
+              总掌握{' '}
+              <span className="font-medium text-gold">
+                {Math.round(
+                  ((state.recall +
+                    state.understanding +
+                    state.application +
+                    state.association +
+                    state.stability +
+                    state.awareness) /
+                    6) *
+                    100,
+                )}
+                %
+              </span>
+            </span>
+          </div>
           <div className="grid grid-cols-3 gap-2">
             <Meter label="回忆" value={state.recall} />
             <Meter label="理解" value={state.understanding} />
