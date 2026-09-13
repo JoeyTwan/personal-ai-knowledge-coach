@@ -15,12 +15,13 @@ const links = [
   { href: '/profile', label: '我的认知' },
 ]
 
-// 手机端底部导航：只放最高频的五个入口（手机以查询和随手问为主）
+// 手机端底部导航：六个入口覆盖全部页面。记录是动作而非去处，挪到顶栏右上角的加号
 const mobileLinks = [
   { href: '/', label: '首页', icon: HomeIcon },
-  { href: '/ask', label: '问 AI', icon: ChatIcon },
-  { href: '/record', label: '记录', icon: PlusIcon },
   { href: '/knowledge', label: '知识库', icon: BookIcon },
+  { href: '/graph', label: '图谱', icon: GraphIcon },
+  { href: '/ask', label: '问 AI', icon: ChatIcon },
+  { href: '/review', label: '复习', icon: ReviewIcon },
   { href: '/profile', label: '认知', icon: UserIcon },
 ]
 
@@ -84,6 +85,16 @@ export default function Nav() {
                 </svg>
               )}
             </button>
+            {/* 手机端：记录是高频动作，放在顶栏右上角最好够到 */}
+            <Link
+              href="/record"
+              aria-label="记录一条知识"
+              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold/15 text-gold transition-colors hover:bg-gold/25 sm:hidden"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M12 5.5v13M5.5 12h13" />
+              </svg>
+            </Link>
           </div>
         </div>
       </header>
@@ -130,20 +141,31 @@ function ChatIcon() {
   )
 }
 
-function PlusIcon() {
-  return (
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 8.2v7.6M8.2 12h7.6" />
-    </svg>
-  )
-}
-
 function BookIcon() {
   return (
     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 5.2A2.2 2.2 0 0 1 6.2 3H20v15H6.2A2.2 2.2 0 0 0 4 20.2z" />
       <path d="M4 20.2A2.2 2.2 0 0 1 6.2 18H20v3z" />
+    </svg>
+  )
+}
+
+function GraphIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="4.8" r="2.2" />
+      <circle cx="5.6" cy="17.4" r="2.2" />
+      <circle cx="18.4" cy="17.4" r="2.2" />
+      <path d="M10.5 6.7 7.1 15.4M13.5 6.7l3.4 8.7M7.8 17.4h8.4" />
+    </svg>
+  )
+}
+
+function ReviewIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19.6 12a7.6 7.6 0 1 1-2.4-5.5" />
+      <path d="M19.6 4.4v4.3h-4.3" />
     </svg>
   )
 }

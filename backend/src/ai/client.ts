@@ -53,7 +53,19 @@ export async function chat(messages: ChatMessage[], options?: ChatOptions): Prom
     temperature: options?.temperature ?? 0.7,
     max_tokens: options?.maxTokens ?? 2048,
   })
-  return res.choices[0]?.message?.content ?? ''
+  const choice = res.choices[0]
+  const content = choice?.message?.content ?? ''
+  // 这个模型是推理模型，思考过程也占 token 预算。预算不够时正文会是空的，
+  // 光看「空回复」判断不出原因，把 finish_reason 和思考用量一起记下来
+  if (!content) {
+    const usage = res.usage as
+      | { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } }
+      | undefined
+    console.error(
+      `[AI] 空回复 finish_reason=${choice?.finish_reason} 输出token=${usage?.completion_tokens ?? '?'} 其中思考=${usage?.completion_tokens_details?.reasoning_tokens ?? '?'}`,
+    )
+  }
+  return content
 }
 
 export async function chatJSON<T>(messages: ChatMessage[], options?: ChatOptions): Promise<T> {
@@ -69,9 +81,10 @@ export async function chatJSON<T>(messages: ChatMessage[], options?: ChatOptions
   }
 
   // 给一次补救机会：明确要求只输出 JSON，不再带任何解释文字
+  // 输出预算翻倍——空回复多半是思考把预算吃光了，原样再来一次还是空
   const second = await chat(
     [...messages, { role: 'assistant', content: first }, { role: 'user', content: '（只输出合法 JSON 本身，不要任何解释、不要代码块围栏。）' }],
-    { temperature: 0.2, maxTokens: options?.maxTokens },
+    { temperature: 0.2, maxTokens: (options?.maxTokens ?? 2048) * 2 },
   )
   try {
     return extractJSON<T>(second)

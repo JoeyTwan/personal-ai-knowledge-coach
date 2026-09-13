@@ -24,9 +24,11 @@ const TRACK_HEIGHT = 34
 const MAX_TRACKS = 6
 const MAX_ON_SCREEN = 16
 // 估算一条弹幕的渲染宽度，用于控制同轨道前后两条的间距
-const CHAR_WIDTH = 13
+const CHAR_WIDTH = 14
 const ITEM_PADDING = 26
-const TRACK_GAP = 34
+const TRACK_GAP = 60
+// 悬停放开后，给这条留出的起步间隔，避免下一条紧贴着追上来
+const RESUME_GAP_MS = 800
 
 function speedLabel(v: number) {
   if (v < 0.85) return '慢'
@@ -52,6 +54,10 @@ export default function Danmaku() {
   const seqRef = useRef(0)
   const flyingRef = useRef<Flying[]>([])
   const pausedRef = useRef(false)
+  // 鼠标停住的那条弹幕独占它的轨道：期间不在该轨道发射新弹幕，
+  // 否则后面的弹幕会追上来盖住它，还会把悬停焦点抢走
+  const activeKeyRef = useRef<string | null>(null)
+  const activeTrackRef = useRef(-1)
 
   const tracks = Math.min(MAX_TRACKS, Math.max(3, Math.floor((size.h - 10) / TRACK_HEIGHT)))
 
@@ -115,6 +121,7 @@ export default function Danmaku() {
     const free = trackFreeRef.current
     let track = -1
     for (let i = 0; i < tracks; i++) {
+      if (i === activeTrackRef.current) continue
       if ((free[i] ?? 0) <= now) {
         track = i
         break
@@ -167,6 +174,22 @@ export default function Danmaku() {
   }, [loading, reduceMotion, items.length, speed])
 
   const remove = (key: string) => setFlying((prev) => prev.filter((f) => f.key !== key))
+
+  // 停住一条弹幕：冻住它，同时把它所在的整条轨道占住
+  const focusItem = (f: Flying) => {
+    activeKeyRef.current = f.key
+    activeTrackRef.current = f.track
+    setActiveKey(f.key)
+  }
+
+  // 放开：解除轨道独占，并把这条轨道的下次可发射时间推后一点
+  const releaseItem = (f: Flying) => {
+    if (activeKeyRef.current !== f.key) return
+    activeKeyRef.current = null
+    activeTrackRef.current = -1
+    trackFreeRef.current[f.track] = Date.now() + RESUME_GAP_MS
+    setActiveKey(null)
+  }
 
   // 加载中：保持版面高度，避免页面跳动
   if (loading) {
@@ -245,10 +268,10 @@ export default function Danmaku() {
             return (
               <button
                 key={f.key}
-                onMouseEnter={() => setActiveKey(f.key)}
-                onMouseLeave={() => setActiveKey((k) => (k === f.key ? null : k))}
-                onTouchStart={() => setActiveKey(f.key)}
-                onTouchEnd={() => setActiveKey((k) => (k === f.key ? null : k))}
+                onMouseEnter={() => focusItem(f)}
+                onMouseLeave={() => releaseItem(f)}
+                onTouchStart={() => focusItem(f)}
+                onTouchEnd={() => releaseItem(f)}
                 onClick={() => router.push(`/knowledge/${f.knowledgeId}`)}
                 onAnimationEnd={() => remove(f.key)}
                 title="点开这条知识"
@@ -262,6 +285,8 @@ export default function Danmaku() {
                 style={
                   {
                     top: f.track * TRACK_HEIGHT + 9,
+                    // 停住的那条提到最上层，视觉上不被任何东西压住
+                    zIndex: active ? 20 : 1,
                     animationName: 'danmaku-fly',
                     animationDuration: `${f.duration}s`,
                     animationTimingFunction: 'linear',

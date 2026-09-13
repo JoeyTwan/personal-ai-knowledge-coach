@@ -44,22 +44,25 @@ export async function detectDuplicates(userId: string) {
 
   if (candidatePairs.length === 0) return []
 
-  // 让 LLM 只在预筛出的候选中精确判断
-  const suggestions = await chatJSON<Array<{ knowledgeIds: string[]; reason?: string }>>([
-    { role: 'system', content: detectDuplicatesSystem() },
-    {
-      role: 'user',
-      content:
-        `以下是「可能重复」的候选知识对（已预筛），请判断哪些是真正重复/高度相似、建议合并的：\n\n` +
-        candidatePairs
-          .map((p, idx) => {
-            const k1 = knowledges.find((k) => k.id === p.a)!
-            const k2 = knowledges.find((k) => k.id === p.b)!
-            return `[候选${idx + 1}] ${k1.id} | ${k1.title}：${k1.coreConclusion}\n         vs ${k2.id} | ${k2.title}：${k2.coreConclusion}`
-          })
-          .join('\n\n'),
-    },
-  ])
+  // 让 LLM 只在预筛出的候选中精确判断。推理模型的思考也要占预算，留宽一些
+  const suggestions = await chatJSON<Array<{ knowledgeIds: string[]; reason?: string }>>(
+    [
+      { role: 'system', content: detectDuplicatesSystem() },
+      {
+        role: 'user',
+        content:
+          `以下是「可能重复」的候选知识对（已预筛），请判断哪些是真正重复/高度相似、建议合并的：\n\n` +
+          candidatePairs
+            .map((p, idx) => {
+              const k1 = knowledges.find((k) => k.id === p.a)!
+              const k2 = knowledges.find((k) => k.id === p.b)!
+              return `[候选${idx + 1}] ${k1.id} | ${k1.title}：${k1.coreConclusion}\n         vs ${k2.id} | ${k2.title}：${k2.coreConclusion}`
+            })
+            .join('\n\n'),
+      },
+    ],
+    { maxTokens: 4096 },
+  )
 
   return suggestions.filter((s) => Array.isArray(s.knowledgeIds) && s.knowledgeIds.length >= 2)
 }

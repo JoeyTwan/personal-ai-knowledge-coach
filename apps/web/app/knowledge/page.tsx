@@ -15,7 +15,31 @@ interface ConfirmState {
   title: string
   desc: string
   confirmText?: string
+  tone?: 'danger' | 'primary'
   onConfirm: () => Promise<void> | void
+}
+
+interface MergeGroup {
+  knowledgeIds: string[]
+  reason: string
+  items: Array<{ id: string; title: string; coreConclusion: string }>
+}
+
+interface SplitPart {
+  title: string
+  coreConclusion: string
+  briefExplanation?: string
+  detailExplanation?: string
+  example?: string
+  type?: string
+  tags?: string[]
+}
+
+interface SplitSuggestion {
+  knowledgeId: string
+  title: string
+  reason: string
+  parts: SplitPart[]
 }
 
 export default function KnowledgeListPage() {
@@ -29,6 +53,27 @@ export default function KnowledgeListPage() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [busy, setBusy] = useState(false)
   const [tick, setTick] = useState(0)
+  const [catOpen, setCatOpen] = useState(false)
+  const [sug, setSug] = useState<{ merges: MergeGroup[]; splits: SplitSuggestion[] } | null>(null)
+  const [orgOpen, setOrgOpen] = useState(false)
+  const [orgError, setOrgError] = useState('')
+
+  // 整理建议：合并与拆分都由 AI 先看出来，用户点头才动手
+  async function loadSuggestions(refresh = false) {
+    setOrgError('')
+    try {
+      const data = await apiGet<{ merges: MergeGroup[]; splits: SplitSuggestion[] }>(
+        `/api/organize/suggestions${refresh ? '?refresh=1' : ''}`,
+      )
+      setSug(data)
+    } catch (e: any) {
+      setOrgError(e?.message ?? '整理建议没取到')
+    }
+  }
+
+  useEffect(() => {
+    loadSuggestions()
+  }, [])
 
   async function loadCategories() {
     try {
@@ -145,16 +190,79 @@ export default function KnowledgeListPage() {
     })
   }
 
+  // 合并：确认后由 AI 融合成一条，原知识归档保留
+  function askMerge(group: MergeGroup) {
+    setConfirm({
+      title: `把这 ${group.items.length} 条合并成一条？`,
+      desc: `${group.items.map((i) => `· ${i.title}`).join('\n')}\n\nAI 会把它们融合成一条更完整的知识。原来几条会归档保留，不会丢，只是不再出现在列表里。`,
+      confirmText: '合并',
+      tone: 'primary',
+      onConfirm: async () => {
+        setBusy(true)
+        try {
+          await apiPost('/api/merge', { knowledgeIds: group.knowledgeIds })
+          setConfirm(null)
+          setTick((t) => t + 1)
+          await loadSuggestions(true)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
+  }
+
+  // 拆分：按用户看过的那份方案落库，原知识归档保留
+  function askSplit(s: SplitSuggestion) {
+    setConfirm({
+      title: `把《${s.title}》拆成 ${s.parts.length} 条？`,
+      desc: `拆成：\n${s.parts.map((p) => `· ${p.title}`).join('\n')}\n\n原知识会归档保留，拆出来的每条都继承原来的分类、来源和掌握程度。`,
+      confirmText: '拆分',
+      tone: 'primary',
+      onConfirm: async () => {
+        setBusy(true)
+        try {
+          await apiPost('/api/organize/split', { knowledgeId: s.knowledgeId, parts: s.parts })
+          setConfirm(null)
+          setTick((t) => t + 1)
+          await loadSuggestions(true)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
+  }
+
+  // 当前选中的分类名（手机端抽屉入口要显示出来）
+  const activeCatName = activeCat ? (findCatName(categories, activeCat) ?? '全部知识') : '全部知识'
+  // 有建议时在入口上挂一个角标，不点开也知道 AI 有话要说
+  const sugTotal = (sug?.merges.length ?? 0) + (sug?.splits.length ?? 0)
+
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="h-serif text-xl font-semibold">知识库</h1>
           <p className="mt-1 text-sm text-muted">你的结构化知识积累。</p>
         </div>
-        <Link href="/record" className="btn btn-primary">
-          记录
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => {
+              setOrgOpen(true)
+              if (!sug) loadSuggestions()
+            }}
+            className="btn btn-ghost relative"
+          >
+            整理
+            {sugTotal > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-gold px-1 text-[10px] font-medium text-canvas">
+                {sugTotal}
+              </span>
+            )}
+          </button>
+          <Link href="/record" className="btn btn-primary">
+            记录
+          </Link>
+        </div>
       </header>
 
       {/* 搜索：边打字边出结果 */}
@@ -186,29 +294,30 @@ export default function KnowledgeListPage() {
         )}
       </div>
 
-      <div className="md:grid md:grid-cols-[220px_1fr] md:gap-6">
-        {/* 分类树侧边栏 */}
-        <aside className="md:sticky md:top-20 md:self-start">
+      {/* 手机端：分类改用抽屉，名字再长也看得全 */}
+      <button
+        onClick={() => setCatOpen(true)}
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-ink/8 bg-surface px-3.5 py-2.5 transition hover:border-ink/20 md:hidden"
+      >
+        <span className="flex min-w-0 items-center gap-2 text-[13px]">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
+            <path d="M3.5 7.2A1.7 1.7 0 0 1 5.2 5.5h4l1.8 2.2h7.8a1.7 1.7 0 0 1 1.7 1.7v7.9a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z" />
+          </svg>
+          <span className="truncate">{activeCatName}</span>
+        </span>
+        <span className="shrink-0 text-[12px] text-faint">切换</span>
+      </button>
+
+      <div className="md:grid md:grid-cols-[240px_1fr] md:gap-6">
+        {/* 桌面端：分类树常驻侧栏 */}
+        <aside className="hidden md:sticky md:top-20 md:block md:self-start">
           <div className="card p-2.5">
-            <button
-              onClick={() => setActiveCat(null)}
-              className={`block w-full rounded-lg px-2.5 py-2 text-left text-[13px] transition ${
-                activeCat === null ? 'bg-gold/15 font-medium text-gold' : 'text-muted hover:text-ink'
-              }`}
-            >
-              全部知识
-            </button>
-            {categories.map((c) => (
-              <CategoryBranch
-                key={c.id}
-                node={c}
-                active={activeCat}
-                onSelect={setActiveCat}
-                onDelete={askDeleteCategory}
-                depth={0}
-              />
-            ))}
-            {categories.length === 0 && <p className="px-2.5 py-2 text-[12px] text-muted">暂无分类</p>}
+            <CategoryTree
+              categories={categories}
+              active={activeCat}
+              onSelect={setActiveCat}
+              onDelete={askDeleteCategory}
+            />
           </div>
         </aside>
 
@@ -251,7 +360,9 @@ export default function KnowledgeListPage() {
                 type="checkbox"
                 checked={selected.has(k.id)}
                 onChange={() => toggleOne(k.id)}
-                className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-gold"
+                className={`mt-1 h-4 w-4 shrink-0 cursor-pointer accent-gold transition-opacity duration-200 ${
+                  selected.has(k.id) ? 'opacity-100' : 'opacity-25 group-hover:opacity-90 hover:opacity-100 focus:opacity-100'
+                }`}
                 aria-label={`选择《${k.title}》`}
               />
               <Link href={`/knowledge/${k.id}`} className="min-w-0 flex-1">
@@ -298,16 +409,189 @@ export default function KnowledgeListPage() {
         </div>
       </div>
 
+      {/* 整理建议面板：合并与拆分都等用户点头 */}
+      {orgOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10 backdrop-blur-sm"
+          onClick={() => setOrgOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-ink/10 bg-surface p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[15px] font-semibold">整理建议</h3>
+                <p className="mt-1 text-[12px] text-muted">AI 把你的知识过了一遍，下面是它觉得该动的地方。你点了才会改。</p>
+              </div>
+              <button
+                onClick={() => setOrgOpen(false)}
+                className="shrink-0 rounded-full px-3 py-1 text-[13px] text-muted transition hover:bg-ink/5 hover:text-ink"
+              >
+                收起
+              </button>
+            </div>
+
+            {orgError && <p className="mt-4 text-[13px] text-danger">{orgError}</p>}
+
+            {!sug && !orgError && (
+              <div className="mt-6 flex items-center gap-2.5 text-[13px] text-muted">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border border-ink/20 border-t-gold" />
+                正在把你的知识过一遍，这一步要花点时间…
+              </div>
+            )}
+
+            {sug && sugTotal === 0 && (
+              <div className="mt-6 space-y-3">
+                <p className="text-[13px] text-muted">现在没有要整理的地方。</p>
+                <button
+                  onClick={() => {
+                    setSug(null)
+                    loadSuggestions(true)
+                  }}
+                  className="rounded-lg border border-ink/12 px-3 py-1.5 text-[12px] text-muted transition hover:border-ink/25 hover:text-ink"
+                >
+                  重新检查一遍
+                </button>
+              </div>
+            )}
+
+            {sug && sug.merges.length > 0 && (
+              <section className="mt-5">
+                <h4 className="text-[11px] tracking-wide text-faint">可以合并</h4>
+                <div className="mt-2 space-y-2">
+                  {sug.merges.map((g, i) => (
+                    <div key={i} className="rounded-xl border border-ink/8 bg-surface2/50 p-3">
+                      <p className="text-[13px] font-medium leading-snug">
+                        {g.items.map((it) => `《${it.title}》`).join('  +  ')}
+                      </p>
+                      {g.reason && <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{g.reason}</p>}
+                      <button
+                        onClick={() => askMerge(g)}
+                        className="mt-2.5 rounded-lg bg-gold/15 px-3 py-1.5 text-[12px] font-medium text-gold transition hover:bg-gold/25"
+                      >
+                        合并成一条
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {sug && sug.splits.length > 0 && (
+              <section className="mt-5">
+                <h4 className="text-[11px] tracking-wide text-faint">建议拆开</h4>
+                <div className="mt-2 space-y-2">
+                  {sug.splits.map((s) => (
+                    <div key={s.knowledgeId} className="rounded-xl border border-ink/8 bg-surface2/50 p-3">
+                      <p className="text-[13px] font-medium leading-snug">《{s.title}》</p>
+                      {s.reason && <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{s.reason}</p>}
+                      <ul className="mt-2 space-y-1">
+                        {s.parts.map((p, j) => (
+                          <li key={j} className="text-[12px] text-muted">
+                            · {p.title}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        onClick={() => askSplit(s)}
+                        className="mt-2.5 rounded-lg bg-gold/15 px-3 py-1.5 text-[12px] font-medium text-gold transition hover:bg-gold/25"
+                      >
+                        拆成 {s.parts.length} 条
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 手机端分类抽屉：选定后自动收起 */}
+      {catOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/55 backdrop-blur-sm md:hidden"
+          onClick={() => setCatOpen(false)}
+        >
+          <div
+            className="max-h-[74vh] w-full overflow-y-auto rounded-t-2xl border-t border-ink/10 bg-surface p-4 pb-[calc(1.1rem+env(safe-area-inset-bottom))] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[15px] font-semibold">按分类浏览</h3>
+              <button
+                onClick={() => setCatOpen(false)}
+                className="rounded-full px-3 py-1 text-[13px] text-muted transition hover:bg-ink/5 hover:text-ink"
+              >
+                收起
+              </button>
+            </div>
+            <CategoryTree
+              categories={categories}
+              active={activeCat}
+              onSelect={(id) => {
+                setActiveCat(id)
+                setCatOpen(false)
+              }}
+              onDelete={askDeleteCategory}
+            />
+          </div>
+        </div>
+      )}
+
       {confirm && (
         <ConfirmModal
           title={confirm.title}
           desc={confirm.desc}
           busy={busy}
+          confirmText={confirm.confirmText}
+          tone={confirm.tone}
           onCancel={() => !busy && setConfirm(null)}
           onConfirm={confirm.onConfirm}
         />
       )}
     </div>
+  )
+}
+
+// 在分类树里按 id 找名字
+function findCatName(nodes: CategoryNode[], id: string): string | null {
+  for (const n of nodes) {
+    if (n.id === id) return n.name
+    const hit = findCatName(n.children, id)
+    if (hit) return hit
+  }
+  return null
+}
+
+// 分类树本体：桌面侧栏与手机抽屉共用同一个，改一处两边都生效
+function CategoryTree({
+  categories,
+  active,
+  onSelect,
+  onDelete,
+}: {
+  categories: CategoryNode[]
+  active: string | null
+  onSelect: (id: string | null) => void
+  onDelete: (node: CategoryNode) => void
+}) {
+  return (
+    <>
+      <button
+        onClick={() => onSelect(null)}
+        className={`block w-full rounded-lg px-2.5 py-2 text-left text-[13px] transition ${
+          active === null ? 'bg-gold/15 font-medium text-gold' : 'text-muted hover:text-ink'
+        }`}
+      >
+        全部知识
+      </button>
+      {categories.map((c) => (
+        <CategoryBranch key={c.id} node={c} active={active} onSelect={onSelect} onDelete={onDelete} depth={0} />
+      ))}
+      {categories.length === 0 && <p className="px-2.5 py-2 text-[12px] text-muted">暂无分类</p>}
+    </>
   )
 }
 
@@ -320,7 +604,7 @@ function CategoryBranch({
 }: {
   node: CategoryNode
   active: string | null
-  onSelect: (id: string) => void
+  onSelect: (id: string | null) => void
   onDelete: (node: CategoryNode) => void
   depth: number
 }) {
@@ -360,7 +644,7 @@ function CategoryBranch({
             isActive ? 'bg-gold/15 font-medium text-gold' : 'text-muted hover:text-ink'
           }`}
         >
-          <span className="truncate">{node.name}</span>
+          <span className="min-w-0 break-all leading-snug">{node.name}</span>
           <span className="ml-2 shrink-0 text-[11px] opacity-60">{node.count}</span>
         </button>
         <button
@@ -388,12 +672,16 @@ function ConfirmModal({
   title,
   desc,
   busy,
+  confirmText = '确认删除',
+  tone = 'danger',
   onCancel,
   onConfirm,
 }: {
   title: string
   desc: string
   busy: boolean
+  confirmText?: string
+  tone?: 'danger' | 'primary'
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -417,9 +705,11 @@ function ConfirmModal({
           <button
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-lg bg-danger px-4 py-2 text-[13px] font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            className={`rounded-lg px-4 py-2 text-[13px] font-medium transition hover:opacity-90 disabled:opacity-50 ${
+              tone === 'danger' ? 'bg-danger text-white' : 'bg-gold text-canvas'
+            }`}
           >
-            {busy ? '删除中…' : '确认删除'}
+            {busy ? '处理中…' : confirmText}
           </button>
         </div>
       </div>
